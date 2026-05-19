@@ -8,21 +8,16 @@ export class HUD {
   private bestEl   = document.getElementById('best')!;
   private posEl    = document.getElementById('pos-num')!;
   private speedEl  = document.getElementById('speed-display')!;
-  private draftBar = document.getElementById('draft-bar')!;
-  private draftVal = document.getElementById('draft-val')!;
+  private draftBar = document.getElementById('draft-bar') as HTMLElement;
+  private draftVal = document.getElementById('draft-val') as HTMLElement;
   private mmCtx: CanvasRenderingContext2D;
-  private mmW = 120;
-  private mmH = 120;
-
-  // Minimap track bounds
+  private mmW = 120; private mmH = 120;
   private mmMinX = 0; private mmMaxX = 1;
   private mmMinZ = 0; private mmMaxZ = 1;
 
   constructor(track: Track) {
     const mm = document.getElementById('minimap') as HTMLCanvasElement;
     this.mmCtx = mm.getContext('2d')!;
-    mm.width  = this.mmW;
-    mm.height = this.mmH;
 
     const pts = track.minimapPoints;
     this.mmMinX = Math.min(...pts.map(p => p.x));
@@ -31,24 +26,23 @@ export class HUD {
     this.mmMaxZ = Math.max(...pts.map(p => p.z));
   }
 
-  private _fmt(sec: number): string {
-    const m  = Math.floor(sec / 60);
-    const s  = Math.floor(sec % 60);
-    const t  = Math.floor((sec % 1) * 10);
-    return `${m}:${String(s).padStart(2, '0')}.${t}`;
+  private _fmt(s: number): string {
+    const m  = Math.floor(s / 60);
+    const ss = Math.floor(s % 60);
+    const t  = Math.floor((s % 1) * 10);
+    return `${m}:${String(ss).padStart(2, '0')}.${t}`;
   }
 
-  private _toMM(x: number, z: number): [number, number] {
-    const pad = 8;
-    const mx = pad + ((x - this.mmMinX) / (this.mmMaxX - this.mmMinX)) * (this.mmW - pad * 2);
-    const mz = pad + ((z - this.mmMinZ) / (this.mmMaxZ - this.mmMinZ)) * (this.mmH - pad * 2);
+  private _mm(x: number, z: number): [number, number] {
+    const p = 8;
+    const mx = p + ((x - this.mmMinX) / (this.mmMaxX - this.mmMinX)) * (this.mmW - p * 2);
+    const mz = p + ((z - this.mmMinZ) / (this.mmMaxZ - this.mmMinZ)) * (this.mmH - p * 2);
     return [mx, mz];
   }
 
   update(player: Car, allCars: Car[], elapsed: number, bestLap: number | null, track: Track) {
     // Lap
-    const lap = Math.min(player.lap, TOTAL_LAPS);
-    this.lapEl.textContent = `${lap} / ${TOTAL_LAPS}`;
+    this.lapEl.textContent = `${Math.min(player.lap, TOTAL_LAPS)} / ${TOTAL_LAPS}`;
 
     // Time
     this.timeEl.textContent = this._fmt(elapsed);
@@ -56,12 +50,10 @@ export class HUD {
 
     // Position
     const sorted = [...allCars].sort((a, b) => b.totalProgress - a.totalProgress);
-    const pos = sorted.indexOf(player) + 1;
-    this.posEl.textContent = String(pos);
+    this.posEl.textContent = String(sorted.indexOf(player) + 1);
 
-    // Speed
-    const spd = Math.round(player.speed * 10000);
-    this.speedEl.textContent = String(spd).padStart(3, '0');
+    // Speed (0–500 display range)
+    this.speedEl.textContent = String(Math.round(player.speed * 10000)).padStart(3, '0');
 
     // Draft
     const pct = Math.round(player.draftLevel * 100);
@@ -75,25 +67,26 @@ export class HUD {
     }
 
     // Minimap
-    const ctx  = this.mmCtx;
+    const ctx = this.mmCtx;
     ctx.clearRect(0, 0, this.mmW, this.mmH);
 
-    // Track outline
+    // Track line
     ctx.beginPath();
     const pts = track.minimapPoints;
-    for (let i = 0; i < pts.length; i++) {
-      const [mx, mz] = this._toMM(pts[i].x, pts[i].z);
+    for (let i = 0; i <= pts.length; i++) {
+      const p = pts[i % pts.length];
+      const [mx, mz] = this._mm(p.x, p.z);
       i === 0 ? ctx.moveTo(mx, mz) : ctx.lineTo(mx, mz);
     }
     ctx.closePath();
-    ctx.strokeStyle = 'rgba(0,255,238,0.35)';
+    ctx.strokeStyle = 'rgba(0,238,255,0.3)';
     ctx.lineWidth   = 4;
     ctx.stroke();
 
     // Car dots
     for (const car of allCars) {
-      const t  = car.trackFrame(track);
-      const [mx, mz] = this._toMM(t.x, t.z);
+      const mp = car.minimapPos(track);
+      const [mx, mz] = this._mm(mp.x, mp.z);
       ctx.beginPath();
       ctx.arc(mx, mz, car.isPlayer ? 4 : 2.5, 0, Math.PI * 2);
       ctx.fillStyle = car.isPlayer ? '#fff' : `#${car.color.toString(16).padStart(6, '0')}`;
