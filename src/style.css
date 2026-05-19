@@ -1,0 +1,28 @@
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:'Courier New',monospace}
+#app{width:100vw;height:100vh;position:relative}
+canvas#canvas{display:block;width:100%;height:100%}
+#hud{position:absolute;inset:0;pointer-events:none;color:#fff}
+.label{font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.4);text-transform:uppercase;margin-bottom:2px}
+.val{font-size:15px;font-weight:bold;margin-bottom:10px;letter-spacing:1px}
+.val:last-child{margin-bottom:0}
+
+#hud-tl{position:absolute;top:20px;left:20px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.12);padding:12px 16px;border-radius:4px;min-width:110px}
+#hud-tr{position:absolute;top:20px;right:20px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.12);padding:4px;border-radius:4px}
+#minimap{display:block}
+#hud-bl{position:absolute;bottom:24px;left:20px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.12);padding:12px 16px;border-radius:4px;min-width:130px}
+#draft-wrap{width:100%;height:5px;background:rgba(255,255,255,.12);border-radius:3px;margin:6px 0;overflow:hidden}
+#draft-bar{height:100%;width:0%;background:linear-gradient(90deg,#00ffcc,#00aaff);border-radius:3px;transition:width .1s}
+#draft-val{font-size:12px;font-weight:bold;color:rgba(255,255,255,.4);letter-spacing:1px}
+#draft-val.active{color:#00ffcc}
+
+#hud-br{position:absolute;bottom:24px;right:20px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.12);padding:12px 16px;border-radius:4px;text-align:right}
+#pos-display{font-size:28px;font-weight:bold;margin-bottom:4px}
+#pos-display span{font-size:38px}
+#speed-display{font-size:42px;font-weight:bold;letter-spacing:2px;color:#00ffcc}
+
+#hud-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none}
+#countdown{font-size:96px;font-weight:bold;color:#fff;text-shadow:0 0 30px rgba(255,255,255,.8);letter-spacing:4px}
+#finish{font-size:48px;font-weight:bold;color:#00ffcc;text-shadow:0 0 20px rgba(0,255,204,.8);letter-spacing:4px}
+
+#controls-hint{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.25);font-family:'Courier New',monospace;font-size:11px;pointer-events:none;letter-spacing:1px}
