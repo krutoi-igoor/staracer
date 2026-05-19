@@ -2,105 +2,147 @@ import * as THREE from 'three';
 import { Track } from './Track';
 import { Car, CarInput } from './Car';
 import { HUD } from './HUD';
-import { Sound } from './Sound';
 import { resolveCollisions } from './Collision';
 import { Multiplayer } from './Multiplayer';
-import { AI_COLORS, NUM_AI, PLAYER_COLOR, TOTAL_LAPS, SPEED_PLAYER_MAX } from './constants';
+import { Scores, ScoreEntry } from './Scores';
+import {
+  AI_COLORS, NUM_AI, TOTAL_LAPS, SPEED_PLAYER_MAX, MAX_LAT,
+  DifficultyConfig, CarSpec, TrackDef,
+} from './constants';
+
+export interface GameConfig {
+  difficulty:  DifficultyConfig;
+  track:       TrackDef;
+  car:         CarSpec;
+  controller:  'keyboard' | 'mouse';
+}
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
   private scene    = new THREE.Scene();
   private camera   = new THREE.PerspectiveCamera(62, 1, 0.3, 3000);
 
-  private track!:    Track;
-  private player!:   Car;
-  private aiCars:    Car[]  = [];
-  private allCars:   Car[]  = [];
-
-  private hud!:      HUD;
-  private sound      = new Sound();
-  private mp!:       Multiplayer;
+  private track!:  Track;
+  private player!: Car;
+  private aiCars:  Car[] = [];
+  private allCars: Car[] = [];
+  private hud!:    HUD;
+  private mp!:     Multiplayer;
 
   private keys: Record<string, boolean> = {};
-  private input: CarInput = { accel: false, brake: false, left: false, right: false, handbrake: false };
-  private prevSteerDir = 0;
+  private _mouseX      = window.innerWidth / 2;
+  private _mouseLBtn   = false;
+  private _mouseRBtn   = false;
+  private _input: CarInput = { accel: false, brake: false, left: false, right: false, handbrake: false, mouseLatTarget: null };
 
-  // Timing
-  private lastRafTime = 0;
-  private elapsed     = 0;
-  private lapStart    = 0;
-  private bestLap: number | null = null;
-  private prevLap     = 1;
+  private elapsed   = 0;
+  private lapStart  = 0;
+  private bestLap:  number | null = null;
+  private prevLap   = 1;
+  private lastRaf   = 0;
+  private started   = false;
+  private done      = false;
+  private finishPos = 1;
 
-  // State
-  private started     = false;
-  private finishShown = false;
-
-  // Smooth camera state
   private _camPos    = new THREE.Vector3();
   private _camLookAt = new THREE.Vector3();
 
-  constructor(canvas: HTMLCanvasElement) {
+  private _onFinish: (time: number, lap: number, pos: number) => void;
+  private _config: GameConfig;
+
+  // Event listeners for cleanup
+  private _listeners: (() => void)[] = [];
+
+  constructor(
+    canvas: HTMLCanvasElement,
+    config: GameConfig,
+    onFinish: (time: number, bestLap: number, pos: number) => void,
+  ) {
+    this._config   = config;
+    this._onFinish = onFinish;
+
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.setClearColor(0x000008);
-    this.renderer.shadowMap.enabled = true;
 
-    this._setupScene();
-    this._setupInput();
-    this._handleResize();
-    window.addEventListener('resize', () => this._handleResize());
+    this._setupScene(config);
+    this._setupInput(config.controller);
+    this._resize();
+
+    const resizeFn = () => this._resize();
+    window.addEventListener('resize', resizeFn);
+    this._listeners.push(() => window.removeEventListener('resize', resizeFn));
   }
 
-  private _setupScene() {
+  private _setupScene(cfg: GameConfig) {
     this.scene.fog = new THREE.FogExp2(0x000008, 0.0015);
     this.scene.add(new THREE.AmbientLight(0x112244, 2.0));
-
     const dir = new THREE.DirectionalLight(0xffffff, 1.4);
     dir.position.set(80, 200, 80);
     this.scene.add(dir);
-
-    // Rim light from below (illuminates underside)
     const rim = new THREE.DirectionalLight(0x002244, 0.6);
     rim.position.set(0, -100, 0);
     this.scene.add(rim);
 
-    // Starfield
-    const starPos = new Float32Array(4000 * 3);
-    for (let i = 0; i < starPos.length; i++) starPos[i] = (Math.random() - 0.5) * 2500;
-    const starGeo = new THREE.BufferGeometry();
-    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-    this.scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.4, sizeAttenuation: true })));
+    // Stars
+    const sp = new Float32Array(4000 * 3);
+    for (let i = 0; i < sp.length; i++) sp[i] = (Math.random() - 0.5) * 2500;
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+    this.scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 0.4 })));
 
-    this.track = new Track(this.scene);
+    this.track = new Track(this.scene, cfg.track);
     this.hud   = new HUD(this.track);
     this.mp    = new Multiplayer(this.scene);
 
-    // Stagger start positions
+    // Stagger grid
     const GAP = 0.011;
-    this.player = new Car(this.scene, PLAYER_COLOR, true, GAP * NUM_AI);
+
+    // AI colors excluding player color
+    const aiColors = AI_COLORS.filter(c => c !== cfg.car.color);
+    while (aiColors.length < NUM_AI) aiColors.push(AI_COLORS[aiColors.length % AI_COLORS.length]);
+
+    this.player = new Car(this.scene, cfg.car.color, true, GAP * NUM_AI, cfg.car, null);
     for (let i = 0; i < NUM_AI; i++) {
-      this.aiCars.push(new Car(this.scene, AI_COLORS[i % AI_COLORS.length], false, GAP * i));
+      this.aiCars.push(new Car(this.scene, aiColors[i], false, GAP * i, cfg.car, cfg.difficulty));
     }
     this.allCars = [this.player, ...this.aiCars];
 
-    // Init camera position off a track frame so no jump on first frame
+    // Init camera
     const f0 = this.track.getTransform(this.player.trackT, 0);
     this._camPos.copy(f0.pos).addScaledVector(f0.tangent, -22).addScaledVector(f0.up, 8);
-    this._camLookAt.copy(f0.pos).addScaledVector(f0.tangent, 10);
+    this._camLookAt.copy(f0.pos).addScaledVector(f0.tangent, 12);
   }
 
-  private _setupInput() {
-    const down = (e: KeyboardEvent) => {
-      this.keys[e.key.toLowerCase()] = true;
-      // Init sound on first keypress (browser autoplay policy)
-      this.sound.init();
-    };
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup',   e => { this.keys[e.key.toLowerCase()] = false; });
+  private _setupInput(controller: 'keyboard' | 'mouse') {
+    const kd = (e: KeyboardEvent) => { this.keys[e.key.toLowerCase()] = true; };
+    const ku = (e: KeyboardEvent) => { this.keys[e.key.toLowerCase()] = false; };
+    window.addEventListener('keydown', kd);
+    window.addEventListener('keyup',   ku);
+    this._listeners.push(
+      () => window.removeEventListener('keydown', kd),
+      () => window.removeEventListener('keyup',   ku),
+    );
+
+    if (controller === 'mouse') {
+      const mm = (e: MouseEvent) => { this._mouseX = e.clientX; };
+      const md = (e: MouseEvent) => { if (e.button === 0) this._mouseLBtn = true; if (e.button === 2) this._mouseRBtn = true; };
+      const mu = (e: MouseEvent) => { if (e.button === 0) this._mouseLBtn = false; if (e.button === 2) this._mouseRBtn = false; };
+      const cm = (e: MouseEvent) => e.preventDefault();
+      window.addEventListener('mousemove',   mm);
+      window.addEventListener('mousedown',   md);
+      window.addEventListener('mouseup',     mu);
+      window.addEventListener('contextmenu', cm);
+      this._listeners.push(
+        () => window.removeEventListener('mousemove',   mm),
+        () => window.removeEventListener('mousedown',   md),
+        () => window.removeEventListener('mouseup',     mu),
+        () => window.removeEventListener('contextmenu', cm),
+      );
+    }
   }
 
-  private _handleResize() {
+  private _resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
@@ -108,27 +150,22 @@ export class Game {
   }
 
   start() {
-    this._runCountdown();
-  }
-
-  private _runCountdown() {
     const countEl  = document.getElementById('countdown')!;
     const centerEl = document.getElementById('hud-center')!;
     centerEl.style.display = 'block';
-
     let n = 3;
     countEl.textContent = String(n);
+    document.getElementById('finish')!.textContent = '';
 
     const tick = setInterval(() => {
       n--;
-      if (n > 0) {
-        countEl.textContent = String(n);
-      } else {
+      if (n > 0) { countEl.textContent = String(n); }
+      else {
         countEl.textContent = 'GO!';
         setTimeout(() => {
           centerEl.style.display = 'none';
           this.started  = true;
-          this.lapStart = performance.now() / 1000;
+          this.lapStart = 0;
         }, 500);
         clearInterval(tick);
       }
@@ -137,12 +174,12 @@ export class Game {
     requestAnimationFrame(t => this._loop(t));
   }
 
-  private _loop(rafTime: number) {
+  private _loop(raf: number) {
+    if (this.done) return;
     requestAnimationFrame(t => this._loop(t));
 
-    // Cap dt at one frame — prevents spiral of death on tab switch
-    const dt = Math.min((rafTime - this.lastRafTime) / 1000, 1 / 30);
-    this.lastRafTime = rafTime;
+    const dt = Math.min((raf - this.lastRaf) / 1000, 1 / 30);
+    this.lastRaf = raf;
 
     if (!this.started) {
       this._updateCamera(0);
@@ -151,19 +188,18 @@ export class Game {
     }
 
     this.elapsed += dt;
+    if (this.lapStart === 0) this.lapStart = this.elapsed;
+
     this._readInput();
 
-    // Physics
     for (const car of this.allCars) {
-      car.update(dt, car.isPlayer ? this.input : null, this.track, this.allCars);
+      car.update(dt, car.isPlayer ? this._input : null, this.track, this.allCars, this.player);
     }
     resolveCollisions(this.allCars);
-
-    // Multiplayer: send our state, update remote meshes
     this.mp.send(this.player.trackT, this.player.lateral, this.player.lap);
     this.mp.update(this.track);
 
-    // Lap tracking
+    // Lap timing
     if (this.player.lap !== this.prevLap) {
       const lapTime = this.elapsed - this.lapStart;
       if (this.bestLap === null || lapTime < this.bestLap) this.bestLap = lapTime;
@@ -171,19 +207,13 @@ export class Game {
       this.prevLap  = this.player.lap;
     }
 
-    // Finish
-    if (this.player.finished && !this.finishShown) {
-      this.finishShown = true;
-      const center = document.getElementById('hud-center')!;
-      center.style.display = 'block';
-      document.getElementById('finish')!.textContent = 'FINISH!';
+    // Race finish
+    if (this.player.finished && !this.done) {
+      this.done = true;
+      const sorted    = [...this.allCars].sort((a, b) => b.totalProgress - a.totalProgress);
+      this.finishPos  = sorted.indexOf(this.player) + 1;
+      this._onFinish(this.elapsed, this.bestLap ?? this.elapsed, this.finishPos);
     }
-
-    // Sound
-    const steerDir = (this.input.right ? 1 : 0) - (this.input.left ? 1 : 0);
-    const steerChange = steerDir - this.prevSteerDir;
-    this.sound.update(this.player.speed, SPEED_PLAYER_MAX, steerDir * 2);
-    this.prevSteerDir = steerDir;
 
     this._updateCamera(dt);
     this.hud.update(this.player, this.allCars, this.elapsed, this.bestLap, this.track);
@@ -192,22 +222,29 @@ export class Game {
 
   private _readInput() {
     const k = this.keys;
-    this.input = {
-      accel:     !!(k['w'] || k['arrowup']),
-      brake:     !!(k['s'] || k['arrowdown']),
-      left:      !!(k['a'] || k['arrowleft']),
-      right:     !!(k['d'] || k['arrowright']),
-      handbrake: !!(k[' ']),
-    };
+    if (this._config.controller === 'mouse') {
+      const norm       = (this._mouseX / window.innerWidth) * 2 - 1;
+      const latTarget  = norm * MAX_LAT;
+      this._input = {
+        accel: !this._mouseRBtn,
+        brake: this._mouseRBtn,
+        left: false, right: false, handbrake: !!k[' '],
+        mouseLatTarget: latTarget,
+      };
+    } else {
+      this._input = {
+        accel:          !!(k['w'] || k['arrowup']),
+        brake:          !!(k['s'] || k['arrowdown']),
+        left:           !!(k['a'] || k['arrowleft']),
+        right:          !!(k['d'] || k['arrowright']),
+        handbrake:      !!(k[' ']),
+        mouseLatTarget: null,
+      };
+    }
   }
 
   private _updateCamera(dt: number) {
-    // Use the interpolated track transform — never getWorldDirection()
-    const { pos, tangent, up } = this.track.getTransform(
-      this.player.trackT, this.player.lateral * 0.4,
-    );
-
-    // Camera sits 22 units behind + 8 up, looks 12 units ahead
+    const { pos, tangent, up } = this.track.getTransform(this.player.trackT, this.player.lateral * 0.4);
     const desired     = pos.clone().addScaledVector(tangent, -22).addScaledVector(up, 8);
     const desiredLook = pos.clone().addScaledVector(tangent, 12);
 
@@ -215,15 +252,20 @@ export class Game {
       this._camPos.copy(desired);
       this._camLookAt.copy(desiredLook);
     } else {
-      // Frame-rate-independent smooth follow (τ ≈ 0.12 s)
-      const alpha     = 1 - Math.pow(0.001, dt / 0.12);
-      const alphaLook = 1 - Math.pow(0.001, dt / 0.08);
-      this._camPos.lerp(desired, alpha);
-      this._camLookAt.lerp(desiredLook, alphaLook);
+      const a  = 1 - Math.pow(0.001, dt / 0.12);
+      const al = 1 - Math.pow(0.001, dt / 0.08);
+      this._camPos.lerp(desired, a);
+      this._camLookAt.lerp(desiredLook, al);
     }
-
     this.camera.position.copy(this._camPos);
     this.camera.lookAt(this._camLookAt);
     this.camera.up.copy(up);
+  }
+
+  destroy() {
+    this.done = true;
+    this._listeners.forEach(fn => fn());
+    this.mp.destroy();
+    this.renderer.dispose();
   }
 }
