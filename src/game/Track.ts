@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TRACK_WIDTH, MAX_LAT, TrackDef } from './constants';
+import { TRACK_WIDTH, TrackDef } from './constants';
 
 export interface TrackFrame {
   pos:     THREE.Vector3;
@@ -8,10 +8,11 @@ export interface TrackFrame {
   up:      THREE.Vector3;
 }
 
+/** Bright neon-ribbon track: dark tarmac surface + glowing edge tubes */
 export class Track {
-  readonly def:    TrackDef;
-  readonly steps:  number;
-  readonly curve:  THREE.CatmullRomCurve3;
+  readonly def:   TrackDef;
+  readonly steps: number;
+  readonly curve: THREE.CatmullRomCurve3;
   readonly frames: TrackFrame[] = [];
   racingLineOffsets!: Float32Array;
   minimapPoints: { x: number; z: number }[] = [];
@@ -25,9 +26,10 @@ export class Track {
     );
     this._buildFrames();
     this._buildRacingLine();
-    this._buildMesh(scene);
-    this._buildBarriers(scene);
-    this._buildStartLine(scene);
+    this._buildSurface(scene);
+    this._buildEdgeTubes(scene);
+    this._buildCenterLine(scene);
+    this._buildStartGate(scene);
     this._buildMinimap();
   }
 
@@ -56,7 +58,7 @@ export class Track {
     const right   = f0.right.clone().lerp(f1.right, frac).normalize();
     const up      = f0.up.clone().lerp(f1.up, frac).normalize();
 
-    pos.addScaledVector(right, lat).addScaledVector(up, 0.8);
+    pos.addScaledVector(right, lat).addScaledVector(up, 0.5);
     return { pos, tangent, right, up };
   }
 
@@ -75,8 +77,8 @@ export class Track {
       const prev = this.frames[(i - 1 + this.steps) % this.steps];
       const next = this.frames[(i + 1) % this.steps];
       const curr = this.frames[i];
-      const c    = new THREE.Vector3().crossVectors(prev.tangent, next.tangent);
-      raw[i]     = c.dot(curr.up) * this.steps;
+      const c = new THREE.Vector3().crossVectors(prev.tangent, next.tangent);
+      raw[i] = c.dot(curr.up) * this.steps;
     }
     const sm = new Float32Array(this.steps);
     const W  = 30;
@@ -87,84 +89,122 @@ export class Track {
     }
     this.racingLineOffsets = new Float32Array(this.steps);
     const AHEAD = 25;
+    const MAX   = (TRACK_WIDTH / 2) * 0.72;
     for (let i = 0; i < this.steps; i++) {
       let ahead = 0;
       for (let k = 0; k < AHEAD; k++) ahead += sm[(i + k) % this.steps];
       ahead /= AHEAD;
-      const target = -ahead * (MAX_LAT * 0.75);
-      this.racingLineOffsets[i] = Math.max(-MAX_LAT * 0.8, Math.min(MAX_LAT * 0.8, target));
+      this.racingLineOffsets[i] = Math.max(-MAX, Math.min(MAX, -ahead * MAX));
     }
   }
 
-  private _buildMesh(scene: THREE.Scene) {
+  // ── Visuals ───────────────────────────────────────────────────────────────
+
+  /** Track surface — near-black, barely visible, reinforces the ribbon in void aesthetic */
+  private _buildSurface(scene: THREE.Scene) {
     const half   = TRACK_WIDTH / 2;
     const posArr = new Float32Array(this.steps * 2 * 3);
     for (let i = 0; i < this.steps; i++) {
-      const { pos, right } = this.frames[i];
+      const { pos, right, up } = this.frames[i];
       const b = i * 6;
-      posArr[b    ] = pos.x + right.x * half; posArr[b + 1] = pos.y + right.y * half; posArr[b + 2] = pos.z + right.z * half;
-      posArr[b + 3] = pos.x - right.x * half; posArr[b + 4] = pos.y - right.y * half; posArr[b + 5] = pos.z - right.z * half;
+      const L = pos.clone().addScaledVector(right,  half).addScaledVector(up, -0.05);
+      const R = pos.clone().addScaledVector(right, -half).addScaledVector(up, -0.05);
+      posArr.set([L.x, L.y, L.z, R.x, R.y, R.z], b);
     }
-    const indices: number[] = [];
+    const idx: number[] = [];
     for (let i = 0; i < this.steps; i++) {
       const a = i * 2, b = i * 2 + 1;
       const c = ((i + 1) % this.steps) * 2, d = ((i + 1) % this.steps) * 2 + 1;
-      indices.push(a, b, d, a, d, c);
+      idx.push(a, b, d, a, d, c);
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
-    geo.setIndex(indices);
+    geo.setIndex(idx);
     geo.computeVertexNormals();
-
-    // Alternating dark stripe pattern for "tarmac" feel
-    const mat = new THREE.MeshStandardMaterial({
-      color:     this.def.color,
-      roughness: 0.9,
-      metalness: 0.05,
+    scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color:     0x040410,
+      roughness: 1,
+      metalness: 0,
       side:      THREE.DoubleSide,
-    });
-    scene.add(new THREE.Mesh(geo, mat));
+    })));
+  }
 
-    // Centre dashed line
+  /** Glowing edge tubes — these are the hero visual */
+  private _buildEdgeTubes(scene: THREE.Scene) {
+    const half = TRACK_WIDTH / 2;
+    for (const side of [1, -1] as const) {
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i < this.steps; i++) {
+        const { pos, right, up } = this.frames[i];
+        pts.push(pos.clone().addScaledVector(right, side * half).addScaledVector(up, 0.1));
+      }
+      const curve  = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5);
+
+      // Core bright tube
+      const coreGeo = new THREE.TubeGeometry(curve, this.steps, 0.18, 6, true);
+      scene.add(new THREE.Mesh(coreGeo, new THREE.MeshStandardMaterial({
+        color:             0x00eeff,
+        emissive:          0x00eeff,
+        emissiveIntensity: 6.0,
+        roughness:         0,
+        metalness:         0.1,
+      })));
+
+      // Outer soft glow tube (wider, semi-transparent, additive)
+      const glowGeo = new THREE.TubeGeometry(curve, Math.floor(this.steps / 2), 0.55, 5, true);
+      scene.add(new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
+        color:       0x00aacc,
+        transparent: true,
+        opacity:     0.18,
+        blending:    THREE.AdditiveBlending,
+        depthWrite:  false,
+        side:        THREE.BackSide,
+      })));
+    }
+  }
+
+  /** Dashed centre line */
+  private _buildCenterLine(scene: THREE.Scene) {
     const pts: THREE.Vector3[] = [];
     for (let i = 0; i < this.steps; i++) {
-      if (i % 12 < 6) pts.push(this.frames[i].pos.clone().addScaledVector(this.frames[i].up, 0.85));
+      if (i % 16 < 8) {
+        const { pos, up } = this.frames[i];
+        pts.push(pos.clone().addScaledVector(up, 0.12));
+      }
     }
-    scene.add(new THREE.Points(
-      new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.PointsMaterial({ color: 0xffee44, size: 0.35 }),
-    ));
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+      color:     0xffffff,
+      size:      0.22,
+      blending:  THREE.AdditiveBlending,
+      depthWrite: false,
+      transparent: true,
+      opacity:   0.4,
+    })));
   }
 
-  private _buildBarriers(scene: THREE.Scene) {
-    const half    = TRACK_WIDTH / 2 + 0.4;
-    const edgeMat = new THREE.LineBasicMaterial({ color: 0x00eeff });
-    const leftPts: THREE.Vector3[]  = [];
-    const rightPts: THREE.Vector3[] = [];
-    for (let i = 0; i <= this.steps; i++) {
-      const f = this.frames[i % this.steps];
-      leftPts.push( f.pos.clone().addScaledVector(f.right,  half).addScaledVector(f.up, 0.9));
-      rightPts.push(f.pos.clone().addScaledVector(f.right, -half).addScaledVector(f.up, 0.9));
-    }
-    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(leftPts),  edgeMat));
-    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rightPts), edgeMat));
-  }
-
-  private _buildStartLine(scene: THREE.Scene) {
+  /** Start/finish glowing gate */
+  private _buildStartGate(scene: THREE.Scene) {
     const f    = this.frames[0];
     const half = TRACK_WIDTH / 2;
-    const geo  = new THREE.PlaneGeometry(TRACK_WIDTH, 1.2);
-    geo.rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.4, side: THREE.DoubleSide }));
-    mesh.position.copy(f.pos).addScaledVector(f.up, 0.9);
+    const mat  = new THREE.MeshBasicMaterial({
+      color:     0xffffff,
+      blending:  THREE.AdditiveBlending,
+      transparent: true,
+      opacity:   0.9,
+      depthWrite: false,
+      side:      THREE.DoubleSide,
+    });
+    const geo = new THREE.PlaneGeometry(TRACK_WIDTH, 0.5);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(f.pos).addScaledVector(f.up, 0.55);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), f.tangent);
     scene.add(mesh);
   }
 
   private _buildMinimap() {
     for (let i = 0; i < this.steps; i++) {
-      const f = this.frames[i];
-      this.minimapPoints.push({ x: f.pos.x, z: f.pos.z });
+      this.minimapPoints.push({ x: this.frames[i].pos.x, z: this.frames[i].pos.z });
     }
   }
 }
