@@ -21,8 +21,8 @@ export function resolveCollisions(cars: Car[]) {
       if (dist < CAR_RADIUS * 2 && dist > 0.001) {
         const overlap = CAR_RADIUS * 2 - dist;
 
-        // Project separation onto each car's lateral axis
-        const latA = a.currentRight.dot({ x: dx, y: dy, z: dz } as any) > 0 ? 1 : -1;
+        // Resolve laterally: push based on which car is more to the right
+        const latA = a.lateral >= b.lateral ? 1 : -1;
         const latB = -latA;
 
         const push = overlap * 0.6;
