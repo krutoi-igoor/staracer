@@ -10,7 +10,7 @@ import { resolveCollisions } from './Collision';
 import { Multiplayer } from './Multiplayer';
 import { Scores } from './Scores';
 import {
-  AI_COLORS, NUM_AI, TOTAL_LAPS, SPEED_PLAYER_MAX, MAX_LAT,
+  AI_COLORS, AI_NAMES, NUM_AI, TOTAL_LAPS, SPEED_PLAYER_MAX, MAX_LAT,
   DifficultyConfig, CarSpec, TrackDef,
 } from './constants';
 
@@ -52,7 +52,7 @@ export class Game {
   private _currentFOV = 72;
 
   // Speed-line particles (void streaks)
-  private _speedLines!: THREE.Points;
+  private _speedLines!: THREE.LineSegments;
   private _slBuf!:      Float32Array;
   private _slAttr!:     THREE.BufferAttribute;
 
@@ -106,17 +106,19 @@ export class Game {
     const SIDES: (-1 | 0 | 1)[] = [-1, 1, -1, 1, -1, 1, -1];
     const aiColors  = AI_COLORS.filter(c => c !== cfg.car.color);
     while (aiColors.length < NUM_AI) aiColors.push(AI_COLORS[aiColors.length % AI_COLORS.length]);
+    const aiNames   = AI_NAMES.filter((_, i) => AI_COLORS[i] !== cfg.car.color);
+    while (aiNames.length < NUM_AI) aiNames.push(AI_NAMES[aiNames.length % AI_NAMES.length]);
 
     this.player = new Car(
       this.scene, cfg.car.color, true,
-      ROW_GAP * (NUM_AI + 0.5), cfg.car, null, { row: 0, side: 0 },
+      ROW_GAP * (NUM_AI + 0.5), cfg.car, null, { row: 0, side: 0 }, 'You',
     );
     for (let i = 0; i < NUM_AI; i++) {
       const row  = Math.floor(i / 2) + 1;
       const side = SIDES[i];
       this.aiCars.push(new Car(
         this.scene, aiColors[i], false,
-        ROW_GAP * (NUM_AI - i - 1), cfg.car, cfg.difficulty, { row, side },
+        ROW_GAP * (NUM_AI - i - 1), cfg.car, cfg.difficulty, { row, side }, aiNames[i],
       ));
     }
     this.allCars = [this.player, ...this.aiCars];
@@ -140,14 +142,13 @@ export class Game {
 
   private _buildSpeedLines() {
     const N = 400;
-    this._slBuf  = new Float32Array(N * 3);
+    this._slBuf  = new Float32Array(N * 2 * 3);
     this._slAttr = new THREE.BufferAttribute(this._slBuf, 3).setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < N; i++) this._resetLine(i);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', this._slAttr);
-    this._speedLines = new THREE.Points(geo, new THREE.PointsMaterial({
-      color:       0x00eeff,
-      size:        0.12,
+    this._speedLines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      color:       0xffffff,
       transparent: true,
       opacity:     0.0,
       blending:    THREE.AdditiveBlending,
@@ -346,7 +347,7 @@ export class Game {
 
   private _updateSpeedLines(dt: number) {
     const spd = this.player.speed / SPEED_PLAYER_MAX;
-    const mat = this._speedLines.material as THREE.PointsMaterial;
+    const mat = this._speedLines.material as THREE.LineBasicMaterial;
 
     // Only show at higher speeds
     mat.opacity = Math.max(0, (spd - 0.5) * 1.4);
@@ -358,10 +359,11 @@ export class Game {
     this._speedLines.position.copy(this.camera.position);
     this._speedLines.quaternion.copy(this.camera.quaternion);
 
-    for (let i = 0; i < 400; i++) {
-      this._slBuf[i * 3 + 2] += streak;
+    for (let i = 0; i < 200; i++) {
+      this._slBuf[i * 6 + 2] += streak;
+      this._slBuf[i * 6 + 5] += streak;
       // Reset when they pass behind camera
-      if (this._slBuf[i * 3 + 2] > 2) this._resetLine(i);
+      if (this._slBuf[i * 6 + 2] > 2) this._resetLine(i);
     }
     this._slAttr.needsUpdate = true;
   }
