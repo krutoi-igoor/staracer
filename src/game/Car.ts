@@ -21,55 +21,46 @@ function buildBody(spec: CarSpec, color: number): THREE.Group {
     color,
     emissive:          color,
     emissiveIntensity: 1.4,
-    roughness:         0.25,
-    metalness:         0.6,
+    roughness:         0.3,
+    metalness:         0.5,
   });
 
-  g.add(new THREE.Mesh(new THREE.BoxGeometry(spec.width, 0.22, spec.length * 0.68), mat));
+  const W  = spec.width;
+  const L  = spec.length;
+  const bw = W * 0.52;   // body (shaft) half-width — narrower than shoulders
+  const H  = 0.22;       // car height (extrusion)
 
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(spec.width * 0.38, spec.length * 0.52, 4), mat);
-  nose.rotation.x = -Math.PI / 2;
-  nose.position.z = spec.length * 0.60;
-  g.add(nose);
+  // Arrow shape in XY plane, tip pointing in +Y (becomes +Z after rotation)
+  const shape = new THREE.Shape();
+  shape.moveTo(0,       L * 0.50);   // front tip
+  shape.lineTo( W*0.5,  L * 0.06);   // right shoulder outer
+  shape.lineTo( bw*0.5, L * 0.03);   // right shoulder inner
+  shape.lineTo( bw*0.5, -L * 0.50);  // right rear
+  shape.lineTo(-bw*0.5, -L * 0.50);  // left rear
+  shape.lineTo(-bw*0.5, L * 0.03);   // left shoulder inner
+  shape.lineTo(-W*0.5,  L * 0.06);   // left shoulder outer
+  shape.closePath();
 
-  for (const side of [-1, 1]) {
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.32, spec.length * 0.28), mat);
-    fin.position.set(side * spec.width * 0.44, 0.18, -spec.length * 0.28);
-    g.add(fin);
-  }
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: H, bevelEnabled: false });
+  geo.rotateX(Math.PI / 2);    // XY plane → XZ plane; +Y → +Z (forward); extrusion → -Y
+  geo.translate(0, H / 2, 0);  // center vertically
 
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(spec.width * 0.22, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), mat);
-  dome.position.set(0, 0.18, 0);
-  g.add(dome);
+  g.add(new THREE.Mesh(geo, mat));
 
-  const exhaust = new THREE.Mesh(
-    new THREE.CircleGeometry(spec.width * 0.18, 8),
+  // Colored underglow on track surface matching car color
+  const puddle = new THREE.Mesh(
+    new THREE.PlaneGeometry(spec.width * 1.8, spec.length * 1.5),
     new THREE.MeshBasicMaterial({
       color,
       blending:    THREE.AdditiveBlending,
       transparent: true,
-      opacity:     0.85,
-      depthWrite:  false,
-    }),
-  );
-  exhaust.rotation.y = Math.PI;
-  exhaust.position.z = -(spec.length * 0.34 + 0.05);
-  g.add(exhaust);
-
-  // White glow puddle on the track surface under the car (reference video feature)
-  const puddle = new THREE.Mesh(
-    new THREE.PlaneGeometry(spec.width * 1.6, spec.length * 1.4),
-    new THREE.MeshBasicMaterial({
-      color:       0xffffff,
-      blending:    THREE.AdditiveBlending,
-      transparent: true,
-      opacity:     0.12,
+      opacity:     0.15,
       depthWrite:  false,
       side:        THREE.DoubleSide,
     }),
   );
   puddle.rotation.x = -Math.PI / 2;
-  puddle.position.y = -0.28;
+  puddle.position.y = -0.3;
   g.add(puddle);
 
   return g;
@@ -91,6 +82,7 @@ export class Car {
   readonly mesh:     THREE.Group;
   readonly isPlayer: boolean;
   readonly color:    number;
+  readonly name:     string;
   readonly spec:     CarSpec;
   private  _trail:   Trail;
 
@@ -127,8 +119,10 @@ export class Car {
     scene: THREE.Scene, color: number, isPlayer: boolean, startT: number,
     spec: CarSpec, diff: DifficultyConfig | null,
     slot: GridSlot = { row: 0, side: 0 },
+    name = 'You',
   ) {
     this.color    = color;
+    this.name     = name;
     this.isPlayer = isPlayer;
     this.trackT   = startT;
     this.spec     = spec;
