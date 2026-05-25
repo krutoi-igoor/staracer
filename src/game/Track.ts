@@ -122,7 +122,7 @@ export class Track {
     geo.setIndex(idx);
     geo.computeVertexNormals();
     scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-      color:     0x040410,
+      color:     0x111118,
       roughness: 1,
       metalness: 0,
       side:      THREE.DoubleSide,
@@ -154,8 +154,8 @@ export class Track {
 
   /** Three-lane road markings: 2 internal dashed dividers matching the reference video */
   private _buildCenterLine(scene: THREE.Scene) {
-    const DASH_ON  = 10;
-    const DASH_OFF = 14;
+    const DASH_ON  = 20;
+    const DASH_OFF = 12;
     const dashMat  = new THREE.MeshBasicMaterial({
       color:       0xffffff,
       blending:    THREE.AdditiveBlending,
