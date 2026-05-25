@@ -117,4 +117,5 @@ export const RUBBER_BAND_LEAD = 0.12;
 export const RUBBER_BAND_MAX  = 0.007;
 
 export const AI_COLORS        = [0xff3366, 0x44aaff, 0xffcc00, 0x00ff88, 0xaa44ff, 0xff8844, 0x44ffcc];
+export const AI_NAMES         = ['Mint', 'Azure', 'Amber', 'Violet', 'Coral', 'Slate', 'Lime'];
 export const MULTIPLAYER_URL  = (import.meta as any).env?.VITE_PARTY_URL ?? '';
