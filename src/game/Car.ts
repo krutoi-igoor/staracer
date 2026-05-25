@@ -20,9 +20,9 @@ function buildBody(spec: CarSpec, color: number): THREE.Group {
   const mat = new THREE.MeshStandardMaterial({
     color,
     emissive:          color,
-    emissiveIntensity: 2.8,
-    roughness:         0.2,
-    metalness:         0.7,
+    emissiveIntensity: 1.4,
+    roughness:         0.25,
+    metalness:         0.6,
   });
 
   g.add(new THREE.Mesh(new THREE.BoxGeometry(spec.width, 0.22, spec.length * 0.68), mat));
