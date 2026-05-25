@@ -129,58 +129,53 @@ export class Track {
     })));
   }
 
-  /** Glowing edge tubes — these are the hero visual */
+  /** Glowing edge tubes — white WipEout style */
   private _buildEdgeTubes(scene: THREE.Scene) {
     const half = TRACK_WIDTH / 2;
     for (const side of [1, -1] as const) {
       const pts: THREE.Vector3[] = [];
       for (let i = 0; i < this.steps; i++) {
         const { pos, right, up } = this.frames[i];
-        pts.push(pos.clone().addScaledVector(right, side * half).addScaledVector(up, 0.1));
+        pts.push(pos.clone().addScaledVector(right, side * half).addScaledVector(up, 0.08));
       }
-      const curve  = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5);
+      const curve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5);
 
-      // Core bright tube
-      const coreGeo = new THREE.TubeGeometry(curve, this.steps, 0.18, 6, true);
+      // Thin white core — triggers white bloom, no heavy colour halo
+      const coreGeo = new THREE.TubeGeometry(curve, this.steps, 0.10, 5, true);
       scene.add(new THREE.Mesh(coreGeo, new THREE.MeshStandardMaterial({
-        color:             0x00eeff,
-        emissive:          0x00eeff,
-        emissiveIntensity: 6.0,
+        color:             0xffffff,
+        emissive:          0xffffff,
+        emissiveIntensity: 3.5,
         roughness:         0,
-        metalness:         0.1,
-      })));
-
-      // Outer soft glow tube (wider, semi-transparent, additive)
-      const glowGeo = new THREE.TubeGeometry(curve, Math.floor(this.steps / 2), 0.55, 5, true);
-      scene.add(new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
-        color:       0x00aacc,
-        transparent: true,
-        opacity:     0.18,
-        blending:    THREE.AdditiveBlending,
-        depthWrite:  false,
-        side:        THREE.BackSide,
+        metalness:         0,
       })));
     }
   }
 
-  /** Dashed centre line */
+  /** Dashed centre line — white, emissive so it bloom-glows too */
   private _buildCenterLine(scene: THREE.Scene) {
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i < this.steps; i++) {
-      if (i % 16 < 8) {
-        const { pos, up } = this.frames[i];
-        pts.push(pos.clone().addScaledVector(up, 0.12));
-      }
-    }
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
-      color:     0xffffff,
-      size:      0.22,
-      blending:  THREE.AdditiveBlending,
-      depthWrite: false,
+    // Build small flat quad dashes along the centre of the track
+    const DASH_ON  = 10;
+    const DASH_OFF = 14;
+    const dashMat  = new THREE.MeshBasicMaterial({
+      color:       0xffffff,
+      blending:    THREE.AdditiveBlending,
+      depthWrite:  false,
       transparent: true,
-      opacity:   0.4,
-    })));
+      opacity:     0.75,
+      side:        THREE.DoubleSide,
+    });
+    for (let i = 0; i < this.steps; i++) {
+      if (i % (DASH_ON + DASH_OFF) >= DASH_ON) continue;
+      const { pos, tangent, right, up } = this.frames[i];
+      void right;
+      const dashGeo = new THREE.PlaneGeometry(0.28, 1.6);
+      const mesh    = new THREE.Mesh(dashGeo, dashMat);
+      mesh.position.copy(pos).addScaledVector(up, 0.06);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+      mesh.rotateX(Math.PI / 2);
+      scene.add(mesh);
+    }
   }
 
   /** Start/finish glowing gate */
