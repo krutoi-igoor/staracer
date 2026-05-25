@@ -89,25 +89,42 @@ export class Game {
   }
 
   private _setupScene(cfg: GameConfig) {
-    this.scene.fog = new THREE.FogExp2(0x000005, 0.0022);
+    this.scene.fog = new THREE.FogExp2(0x000000, 0.0018);
 
-    // Dim ambient only — the emissive materials light themselves
-    this.scene.add(new THREE.AmbientLight(0x111133, 0.8));
+    // Neutral dim ambient — emissive materials carry their own light
+    this.scene.add(new THREE.AmbientLight(0x0d0d0d, 1.0));
 
-    // Starfield — extra depth layer
-    const sp = new Float32Array(6000 * 3);
-    for (let i = 0; i < sp.length; i++) sp[i] = (Math.random() - 0.5) * 2400;
-    const sg = new THREE.BufferGeometry();
-    sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
-    this.scene.add(new THREE.Points(sg, new THREE.PointsMaterial({
-      color:       0xffffff,
-      size:        0.35,
+    // Background atmosphere: faint concentric rings (WipEout arena ribs)
+    const ringMat = new THREE.MeshBasicMaterial({
+      color:       0x1a1a1a,
       transparent: true,
-      opacity:     0.6,
-      blending:    THREE.AdditiveBlending,
-      depthWrite:  false,
-      sizeAttenuation: true,
-    })));
+      opacity:     0.55,
+      side:        THREE.BackSide,
+      wireframe:   true,
+    });
+    const ringRadii = [180, 260, 360, 480, 620];
+    for (let i = 0; i < ringRadii.length; i++) {
+      const r   = ringRadii[i];
+      const geo = new THREE.TorusGeometry(r, r * 0.003, 4, 96);
+      const m   = new THREE.Mesh(geo, ringMat);
+      m.rotation.x = Math.PI / 2 + (i * 0.08);
+      m.rotation.z = i * 0.25;
+      m.position.y = -30 + i * 15;
+      this.scene.add(m);
+    }
+    // A few horizontal arcs across the upper sky
+    for (let i = 0; i < 3; i++) {
+      const r   = 300 + i * 120;
+      const geo = new THREE.TorusGeometry(r, r * 0.0018, 3, 64, Math.PI * 0.7);
+      const m   = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color:       0x141414,
+        transparent: true,
+        opacity:     0.5,
+      }));
+      m.rotation.x = -0.3 - i * 0.12;
+      m.position.y = 60 + i * 40;
+      this.scene.add(m);
+    }
 
     this.track = new Track(this.scene, cfg.track);
     this.hud   = new HUD(this.track);
@@ -145,9 +162,9 @@ export class Game {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.6,   // strength
-      0.55,  // radius
-      0.04,  // threshold — almost everything glows
+      1.1,   // strength  — down from 1.6, keeps it clean
+      0.40,  // radius    — tighter halo
+      0.72,  // threshold — only bright whites bloom, not everything
     );
     this.composer.addPass(bloom);
   }
