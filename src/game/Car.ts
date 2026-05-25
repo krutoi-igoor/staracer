@@ -56,6 +56,22 @@ function buildBody(spec: CarSpec, color: number): THREE.Group {
   exhaust.position.z = -(spec.length * 0.34 + 0.05);
   g.add(exhaust);
 
+  // White glow puddle on the track surface under the car (reference video feature)
+  const puddle = new THREE.Mesh(
+    new THREE.PlaneGeometry(spec.width * 1.6, spec.length * 1.4),
+    new THREE.MeshBasicMaterial({
+      color:       0xffffff,
+      blending:    THREE.AdditiveBlending,
+      transparent: true,
+      opacity:     0.12,
+      depthWrite:  false,
+      side:        THREE.DoubleSide,
+    }),
+  );
+  puddle.rotation.x = -Math.PI / 2;
+  puddle.position.y = -0.28;
+  g.add(puddle);
+
   return g;
 }
 
