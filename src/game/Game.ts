@@ -89,42 +89,11 @@ export class Game {
   }
 
   private _setupScene(cfg: GameConfig) {
-    this.scene.fog = new THREE.FogExp2(0x000000, 0.0018);
+    // Pure black void — no fog, no background geometry
+    this.scene.background = new THREE.Color(0x000000);
 
-    // Neutral dim ambient — emissive materials carry their own light
-    this.scene.add(new THREE.AmbientLight(0x0d0d0d, 1.0));
-
-    // Background atmosphere: faint concentric rings (WipEout arena ribs)
-    const ringMat = new THREE.MeshBasicMaterial({
-      color:       0x1a1a1a,
-      transparent: true,
-      opacity:     0.55,
-      side:        THREE.BackSide,
-      wireframe:   true,
-    });
-    const ringRadii = [180, 260, 360, 480, 620];
-    for (let i = 0; i < ringRadii.length; i++) {
-      const r   = ringRadii[i];
-      const geo = new THREE.TorusGeometry(r, r * 0.003, 4, 96);
-      const m   = new THREE.Mesh(geo, ringMat);
-      m.rotation.x = Math.PI / 2 + (i * 0.08);
-      m.rotation.z = i * 0.25;
-      m.position.y = -30 + i * 15;
-      this.scene.add(m);
-    }
-    // A few horizontal arcs across the upper sky
-    for (let i = 0; i < 3; i++) {
-      const r   = 300 + i * 120;
-      const geo = new THREE.TorusGeometry(r, r * 0.0018, 3, 64, Math.PI * 0.7);
-      const m   = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-        color:       0x141414,
-        transparent: true,
-        opacity:     0.5,
-      }));
-      m.rotation.x = -0.3 - i * 0.12;
-      m.position.y = 60 + i * 40;
-      this.scene.add(m);
-    }
+    // Minimal ambient so car geometry is readable
+    this.scene.add(new THREE.AmbientLight(0x111111, 1.0));
 
     this.track = new Track(this.scene, cfg.track);
     this.hud   = new HUD(this.track);
@@ -162,9 +131,9 @@ export class Game {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.1,   // strength  — down from 1.6, keeps it clean
-      0.40,  // radius    — tighter halo
-      0.72,  // threshold — only bright whites bloom, not everything
+      1.35,  // strength — strong white glow, matches reference
+      0.45,  // radius   — soft but contained halo
+      0.60,  // threshold — fires on bright whites (edge lines, cars) not dark surfaces
     );
     this.composer.addPass(bloom);
   }
