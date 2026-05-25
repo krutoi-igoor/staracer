@@ -4,7 +4,7 @@ import { RenderPass }      from 'three/examples/jsm/postprocessing/RenderPass.js
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 import { Track } from './Track';
-import { Car, CarInput } from './Car';
+import { Car, CarInput, GridSlot } from './Car';
 import { HUD } from './HUD';
 import { resolveCollisions } from './Collision';
 import { Multiplayer } from './Multiplayer';
@@ -60,6 +60,9 @@ export class Game {
   private _config:   GameConfig;
   private _listeners: (() => void)[] = [];
 
+  /** Camera shake — decays over time after collision */
+  private _shakeAmt  = 0;
+
   constructor(
     canvas: HTMLCanvasElement,
     config: GameConfig,
@@ -110,13 +113,25 @@ export class Game {
     this.hud   = new HUD(this.track);
     this.mp    = new Multiplayer(this.scene);
 
-    const GAP       = 0.011;
+    // Staggered starting grid: pairs left/right each row
+    //   Player = pole position (front), AI fill rows behind
+    //   row 0 = T offset 0 (ahead), each row further back by 0.010 fraction
+    const ROW_GAP   = 0.0105;
+    const SIDES: (-1 | 0 | 1)[] = [-1, 1, -1, 1, -1, 1, -1];
     const aiColors  = AI_COLORS.filter(c => c !== cfg.car.color);
     while (aiColors.length < NUM_AI) aiColors.push(AI_COLORS[aiColors.length % AI_COLORS.length]);
 
-    this.player = new Car(this.scene, cfg.car.color, true, GAP * NUM_AI, cfg.car, null);
+    this.player = new Car(
+      this.scene, cfg.car.color, true,
+      ROW_GAP * (NUM_AI + 0.5), cfg.car, null, { row: 0, side: 0 },
+    );
     for (let i = 0; i < NUM_AI; i++) {
-      this.aiCars.push(new Car(this.scene, aiColors[i], false, GAP * i, cfg.car, cfg.difficulty));
+      const row  = Math.floor(i / 2) + 1;
+      const side = SIDES[i];
+      this.aiCars.push(new Car(
+        this.scene, aiColors[i], false,
+        ROW_GAP * (NUM_AI - i - 1), cfg.car, cfg.difficulty, { row, side },
+      ));
     }
     this.allCars = [this.player, ...this.aiCars];
 
@@ -249,7 +264,11 @@ export class Game {
     for (const car of this.allCars) {
       car.update(dt, car.isPlayer ? this._input : null, this.track, this.allCars, this.player);
     }
+    const prevLat  = this.player.lateral;
     resolveCollisions(this.allCars);
+    // Trigger camera shake when player is knocked sideways
+    const latDelta = Math.abs(this.player.lateral - prevLat);
+    if (latDelta > 0.15) this._shakeAmt = Math.min(this._shakeAmt + latDelta * 1.2, 0.9);
 
     this.mp.send(this.player.trackT, this.player.lateral, this.player.lap);
     this.mp.update(this.track);
@@ -300,18 +319,17 @@ export class Game {
   }
 
   private _updateCamera(dt: number) {
-    const spd = this.player.speed / SPEED_PLAYER_MAX;           // 0-1
+    const spd = this.player.speed / SPEED_PLAYER_MAX;
 
     const { pos, tangent, up } = this.track.getTransform(this.player.trackT, this.player.lateral * 0.45);
 
-    // Low and tight at speed, pulls back slightly when slow
     const camH    = 2.8 + spd * 1.2;
     const camDist = 14 - spd * 3;
 
     const desired     = pos.clone().addScaledVector(tangent, -camDist).addScaledVector(up, camH);
     const desiredLook = pos.clone().addScaledVector(tangent, 9).addScaledVector(up, -0.4);
 
-    // Dynamic FOV — stretches as you speed up (F-Zero feel)
+    // Dynamic FOV
     const targetFOV  = 72 + spd * 32;
     this._currentFOV += (targetFOV - this._currentFOV) * Math.min(dt * 5, 1);
     this.camera.fov   = this._currentFOV;
@@ -330,6 +348,14 @@ export class Game {
     this.camera.position.copy(this._camPos);
     this.camera.lookAt(this._camLookAt);
     this.camera.up.copy(up);
+
+    // Camera shake from collisions
+    if (this._shakeAmt > 0.01) {
+      this._shakeAmt *= (1 - dt * 9);
+      const s = this._shakeAmt;
+      this.camera.position.x += (Math.random() - 0.5) * s * 0.6;
+      this.camera.position.y += (Math.random() - 0.5) * s * 0.3;
+    }
   }
 
   private _updateSpeedLines(dt: number) {
