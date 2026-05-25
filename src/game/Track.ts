@@ -152,9 +152,8 @@ export class Track {
     }
   }
 
-  /** Dashed centre line — white, emissive so it bloom-glows too */
+  /** Three-lane road markings: 2 internal dashed dividers matching the reference video */
   private _buildCenterLine(scene: THREE.Scene) {
-    // Build small flat quad dashes along the centre of the track
     const DASH_ON  = 10;
     const DASH_OFF = 14;
     const dashMat  = new THREE.MeshBasicMaterial({
@@ -162,19 +161,24 @@ export class Track {
       blending:    THREE.AdditiveBlending,
       depthWrite:  false,
       transparent: true,
-      opacity:     0.75,
+      opacity:     0.80,
       side:        THREE.DoubleSide,
     });
-    for (let i = 0; i < this.steps; i++) {
-      if (i % (DASH_ON + DASH_OFF) >= DASH_ON) continue;
-      const { pos, tangent, right, up } = this.frames[i];
-      void right;
-      const dashGeo = new THREE.PlaneGeometry(0.28, 1.6);
-      const mesh    = new THREE.Mesh(dashGeo, dashMat);
-      mesh.position.copy(pos).addScaledVector(up, 0.06);
-      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
-      mesh.rotateX(Math.PI / 2);
-      scene.add(mesh);
+    // Two dividers at ±1/3 of track half-width (creates 3 equal lanes)
+    const laneOffsets = [-TRACK_WIDTH / 3, TRACK_WIDTH / 3];
+    for (const lat of laneOffsets) {
+      for (let i = 0; i < this.steps; i++) {
+        if (i % (DASH_ON + DASH_OFF) >= DASH_ON) continue;
+        const { pos, tangent, right, up } = this.frames[i];
+        const dashGeo = new THREE.PlaneGeometry(0.22, 1.8);
+        const mesh    = new THREE.Mesh(dashGeo, dashMat);
+        mesh.position.copy(pos)
+          .addScaledVector(right, lat)
+          .addScaledVector(up, 0.06);
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+        mesh.rotateX(Math.PI / 2);
+        scene.add(mesh);
+      }
     }
   }
 
