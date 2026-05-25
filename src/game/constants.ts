@@ -13,10 +13,10 @@ export interface DifficultyConfig {
 }
 
 export const DIFFICULTIES: DifficultyConfig[] = [
-  { id: 'easy',   label: 'Easy',   aiSpeedBase: 0.013, aiSpeedVar: 0.005, aiReaction: 1.0, aiLookAhead:  8, aiBlock: false },
-  { id: 'medium', label: 'Medium', aiSpeedBase: 0.022, aiSpeedVar: 0.006, aiReaction: 2.4, aiLookAhead: 28, aiBlock: false },
-  { id: 'hard',   label: 'Hard',   aiSpeedBase: 0.033, aiSpeedVar: 0.007, aiReaction: 4.0, aiLookAhead: 45, aiBlock: true  },
-  { id: 'insane', label: 'Insane', aiSpeedBase: 0.046, aiSpeedVar: 0.004, aiReaction: 7.0, aiLookAhead: 65, aiBlock: true  },
+  { id: 'easy',   label: 'Easy',   aiSpeedBase: 0.027, aiSpeedVar: 0.007, aiReaction: 1.2, aiLookAhead: 10, aiBlock: false },
+  { id: 'medium', label: 'Medium', aiSpeedBase: 0.040, aiSpeedVar: 0.006, aiReaction: 2.8, aiLookAhead: 30, aiBlock: false },
+  { id: 'hard',   label: 'Hard',   aiSpeedBase: 0.047, aiSpeedVar: 0.004, aiReaction: 4.2, aiLookAhead: 48, aiBlock: true  },
+  { id: 'insane', label: 'Insane', aiSpeedBase: 0.051, aiSpeedVar: 0.002, aiReaction: 7.5, aiLookAhead: 68, aiBlock: true  },
 ];
 
 export interface CarSpec {
@@ -33,10 +33,10 @@ export interface CarSpec {
 
 export const CAR_SPECS: CarSpec[] = [
   { id: 'arrow',   label: 'Arrow',   color: 0xffffff, width: 1.3, length: 3.2, topSpeedMult: 1.00, accelMult: 1.00, handleMult: 1.00, desc: 'Balanced all-rounder'   },
-  { id: 'bullet',  label: 'Bullet',  color: 0xff2244, width: 1.0, length: 4.2, topSpeedMult: 1.28, accelMult: 0.72, handleMult: 0.78, desc: 'Top-speed monster'      },
-  { id: 'wedge',   label: 'Wedge',   color: 0x33aaff, width: 1.7, length: 2.8, topSpeedMult: 0.88, accelMult: 1.30, handleMult: 1.38, desc: 'High cornering grip'    },
+  { id: 'bullet',  label: 'Bullet',  color: 0xff2244, width: 1.0, length: 4.2, topSpeedMult: 1.28, accelMult: 0.72, handleMult: 0.68, desc: 'Top-speed monster — hard to steer' },
+  { id: 'wedge',   label: 'Wedge',   color: 0x33aaff, width: 1.7, length: 2.8, topSpeedMult: 0.88, accelMult: 1.30, handleMult: 1.48, desc: 'High cornering grip'    },
   { id: 'blade',   label: 'Blade',   color: 0xffcc00, width: 0.9, length: 3.8, topSpeedMult: 1.15, accelMult: 1.10, handleMult: 0.95, desc: 'Pierces the draft'      },
-  { id: 'dart',    label: 'Dart',    color: 0x00ff88, width: 1.1, length: 3.0, topSpeedMult: 0.88, accelMult: 1.45, handleMult: 1.45, desc: 'Explosive acceleration' },
+  { id: 'dart',    label: 'Dart',    color: 0x00ff88, width: 1.1, length: 3.0, topSpeedMult: 0.88, accelMult: 1.45, handleMult: 1.55, desc: 'Explosive acceleration' },
   { id: 'phantom', label: 'Phantom', color: 0xcc44ff, width: 1.5, length: 3.5, topSpeedMult: 1.08, accelMult: 0.88, handleMult: 1.18, desc: 'Ghostly handler'        },
 ];
 
@@ -44,8 +44,8 @@ export interface TrackDef {
   id:     string;
   label:  string;
   desc:   string;
-  color:  number;   // track surface tint
-  edge:   number;   // edge tube color
+  color:  number;
+  edge:   number;
   steps:  number;
   points: [number, number, number][];
 }
@@ -82,20 +82,39 @@ export const TRACK_DEFS: TrackDef[] = [
   },
 ];
 
-// Physics
+// ── Player physics ─────────────────────────────────────────────────────────
+
 export const SPEED_PLAYER_MAX = 0.052;
 export const SPEED_ACCEL      = 0.022;
 export const SPEED_BRAKE      = 0.040;
 export const SPEED_FRICTION   = 0.010;
 
-export const LAT_SPEED        = 1.8;
-export const MAX_LAT          = TRACK_WIDTH * 0.40;
-export const FALL_TRIGGER     = MAX_LAT + 1.4;
+/** Lateral velocity model (replaces position-snap steering) */
+export const LAT_ACCEL        = 14.0;    // units/s² of lateral acceleration input
+export const LAT_DAMP         = 4.5;     // lateral velocity friction (1/s)
+export const MAX_LAT          = TRACK_WIDTH * 0.46;  // 5.06 — uses most of track width
 
+/** Centrifugal drift — pushes car outward in corners */
+export const CURV_DRIFT       = 30.0;   // lateral drift force scale
+export const CURV_LOOK        = 15;     // frames ahead to measure curvature
+
+/**
+ * Fall zone = exact track half-width.
+ * Centrifugal drift can push car beyond MAX_LAT into fall zone in tight corners.
+ */
+export const FALL_TRIGGER     = TRACK_WIDTH * 0.50;  // 5.5
+
+// ── Draft ──────────────────────────────────────────────────────────────────
 export const CAR_RADIUS       = 1.6;
 export const DRAFT_RANGE      = 0.020;
 export const DRAFT_LAT_THRESH = 0.40;
 export const DRAFT_BOOST      = 0.008;
 
-export const AI_COLORS = [0xff3366, 0x44aaff, 0xffcc00, 0x00ff88, 0xaa44ff, 0xff8844, 0x44ffcc];
+// ── AI rubber-band ─────────────────────────────────────────────────────────
+/** If player leads this many lap-fractions, AI gently catch up */
+export const RUBBER_BAND_LEAD = 0.12;
+/** Max extra speed fraction added by rubber-band */
+export const RUBBER_BAND_MAX  = 0.007;
+
+export const AI_COLORS        = [0xff3366, 0x44aaff, 0xffcc00, 0x00ff88, 0xaa44ff, 0xff8844, 0x44ffcc];
 export const MULTIPLAYER_URL  = (import.meta as any).env?.VITE_PARTY_URL ?? '';
