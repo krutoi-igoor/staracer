@@ -71,8 +71,14 @@ export class Game {
     this._config   = config;
     this._onFinish = onFinish;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: !isMobile,
+      powerPreference: isMobile ? 'default' : 'high-performance',
+    });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
     this.renderer.setClearColor(0x000005);
     this.renderer.toneMapping        = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.75;
@@ -129,13 +135,23 @@ export class Game {
   }
 
   private _setupBloom() {
-    this.composer = new EffectComposer(this.renderer);
+    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const w = window.innerWidth, h = window.innerHeight;
+
+    // Mobile GPUs often lack half-float render target support → use UnsignedByteType
+    // to prevent the black screen caused by an unsupported EffectComposer RT.
+    const rtOptions = isMobile
+      ? { type: THREE.UnsignedByteType }
+      : { type: THREE.HalfFloatType };
+    const rt = new THREE.WebGLRenderTarget(w, h, rtOptions);
+
+    this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     const bloom = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.35,  // strength — strong white glow, matches reference
-      0.45,  // radius   — soft but contained halo
-      0.60,  // threshold — fires on bright whites (edge lines, cars) not dark surfaces
+      new THREE.Vector2(w, h),
+      isMobile ? 0.9 : 1.35,  // lower strength on mobile
+      0.45,
+      0.60,
     );
     this.composer.addPass(bloom);
   }
@@ -195,6 +211,44 @@ export class Game {
         () => window.removeEventListener('contextmenu', cm),
       );
     }
+
+    // Touch controls — always active so mobile users can steer
+    this._setupTouchControls();
+  }
+
+  private _setupTouchControls() {
+    // Build on-screen touch buttons (left / right / accel / brake)
+    const ui = document.getElementById('game-ui')!;
+    const pad = document.createElement('div');
+    pad.id = 'touch-pad';
+    pad.innerHTML = `
+      <div id="touch-left"  class="t-btn">◀</div>
+      <div id="touch-right" class="t-btn">▶</div>
+      <div id="touch-accel" class="t-btn t-accel">▲</div>
+      <div id="touch-brake" class="t-btn t-brake">▼</div>
+    `;
+    ui.appendChild(pad);
+
+    const bind = (id: string, key: string) => {
+      const el = document.getElementById(id)!;
+      const down = (e: Event) => { e.preventDefault(); this.keys[key] = true; };
+      const up   = (e: Event) => { e.preventDefault(); this.keys[key] = false; };
+      el.addEventListener('touchstart', down, { passive: false });
+      el.addEventListener('touchend',   up,   { passive: false });
+      el.addEventListener('touchcancel',up,   { passive: false });
+      this._listeners.push(() => {
+        el.removeEventListener('touchstart', down);
+        el.removeEventListener('touchend',   up);
+        el.removeEventListener('touchcancel',up);
+      });
+    };
+    bind('touch-left',  'a');
+    bind('touch-right', 'd');
+    bind('touch-accel', 'w');
+    bind('touch-brake', 's');
+
+    // Also remove the touch pad on destroy
+    this._listeners.push(() => pad.remove());
   }
 
   private _resize() {
