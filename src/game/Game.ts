@@ -72,7 +72,7 @@ export class Game {
     this._config   = config;
     this._onFinish = onFinish;
 
-    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isMobile = navigator.maxTouchPoints > 0 || ('ontouchstart' in window);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -136,7 +136,7 @@ export class Game {
   }
 
   private _setupBloom() {
-    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isMobile = navigator.maxTouchPoints > 0 || ('ontouchstart' in window);
 
     // iOS Safari and many mobile GPUs don't support EffectComposer render targets at all.
     // On mobile we skip the composer entirely — direct renderer.render() always works.
