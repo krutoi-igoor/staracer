@@ -26,6 +26,7 @@ export class Game {
   private scene     = new THREE.Scene();
   private camera    = new THREE.PerspectiveCamera(72, 1, 0.3, 3000);
   private composer!: EffectComposer;
+  private _useComposer = true;  // false on mobile = direct renderer.render()
 
   private track!:   Track;
   private player!:  Car;
@@ -136,20 +137,21 @@ export class Game {
 
   private _setupBloom() {
     const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    // iOS Safari and many mobile GPUs don't support EffectComposer render targets at all.
+    // On mobile we skip the composer entirely — direct renderer.render() always works.
+    if (isMobile) {
+      this._useComposer = false;
+      return;
+    }
+
     const w = window.innerWidth, h = window.innerHeight;
-
-    // Mobile GPUs often lack half-float render target support → use UnsignedByteType
-    // to prevent the black screen caused by an unsupported EffectComposer RT.
-    const rtOptions = isMobile
-      ? { type: THREE.UnsignedByteType }
-      : { type: THREE.HalfFloatType };
-    const rt = new THREE.WebGLRenderTarget(w, h, rtOptions);
-
+    const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(w, h),
-      isMobile ? 0.9 : 1.35,  // lower strength on mobile
+      1.35,
       0.45,
       0.60,
     );
@@ -251,10 +253,19 @@ export class Game {
     this._listeners.push(() => pad.remove());
   }
 
+  private _render() {
+    if (this._useComposer) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+
   private _resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h);
-    this.composer.setSize(w, h);
+    if (this._useComposer) this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -293,7 +304,7 @@ export class Game {
 
     if (!this.started) {
       this._updateCamera(0);
-      this.composer.render();
+      this._render();
       return;
     }
 
@@ -332,7 +343,7 @@ export class Game {
     this._updateSpeedLines(dt);
     this._updateCamera(dt);
     this.hud.update(this.player, this.allCars, this.elapsed, this.bestLap, this.track);
-    this.composer.render();
+    this._render();
   }
 
   private _readInput() {
@@ -427,7 +438,7 @@ export class Game {
     this._listeners.forEach(fn => fn());
     this.allCars.forEach(c => c.dispose());
     this.mp.destroy();
-    this.composer.dispose();
+    if (this._useComposer) this.composer.dispose();
     this.renderer.dispose();
   }
 }
