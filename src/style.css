@@ -310,3 +310,28 @@ canvas#canvas { position: fixed; inset: 0; z-index: 0; }
 }
 #respawn-text { font-size: 1.2rem; letter-spacing: 0.25em; color: rgba(255,100,100,0.9); font-weight: 700; }
 #respawn-num  { font-size: 5rem; font-weight: 900; color: #fff; text-shadow: 0 0 30px rgba(255,80,80,0.8); }
+
+/* ── Touch controls (mobile) ── */
+#touch-pad {
+  position: absolute; inset: 0; pointer-events: none; z-index: 20;
+}
+.t-btn {
+  position: absolute; pointer-events: all;
+  width: 72px; height: 72px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.08);
+  border: 1.5px solid rgba(255,255,255,0.2);
+  border-radius: 50%;
+  font-size: 1.4rem; color: rgba(255,255,255,0.65);
+  user-select: none; -webkit-user-select: none;
+  touch-action: none;
+  transition: background 0.1s;
+}
+.t-btn:active { background: rgba(255,255,255,0.22); }
+#touch-left  { bottom: 2.5rem; left: 1.5rem; }
+#touch-right { bottom: 2.5rem; left: 6rem; }
+#touch-accel { bottom: 5rem;   right: 1.5rem; }
+#touch-brake { bottom: 1rem;   right: 1.5rem; }
+
+/* Prevent zoom on double-tap */
+#game-ui { touch-action: none; }
