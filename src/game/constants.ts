@@ -56,7 +56,7 @@ export interface TrackDef {
 export const TRACK_DEFS: TrackDef[] = [
   {
     id: 'midnight', label: 'Midnight Circuit', desc: 'F1-style · hairpin & esses',
-    color: 0x030312, steps: 600,
+    color: 0x030312, steps: 1200,
     points: [
       [   0,   0,    0], [ 120,   0,  -60], [ 220,  10, -160], [ 280,   0, -260],
       [ 250, -18, -345], [ 140,  -5, -365], [  20,   0, -315], [-105,  12, -265],
@@ -66,7 +66,7 @@ export const TRACK_DEFS: TrackDef[] = [
   },
   {
     id: 'neon_oval', label: 'Neon Oval', desc: 'High-speed oval · chicane',
-    color: 0x020210, steps: 500,
+    color: 0x020210, steps: 1000,
     points: [
       [   0,  0,    0], [ 100,  0,  -40], [ 220,  6,  -90], [ 300,  0, -190],
       [ 290, -7, -300], [ 220,  0, -390], [ 100,  6, -430], [   0,  0, -450],
@@ -76,7 +76,7 @@ export const TRACK_DEFS: TrackDef[] = [
   },
   {
     id: 'alpine', label: 'Alpine Helix', desc: 'Elevation changes · tight hairpins',
-    color: 0x020d02, steps: 700,
+    color: 0x020d02, steps: 1400,
     points: [
       [   0,   0,    0], [  85,  22,  -85], [ 175,  48, -135], [ 205,  62, -215],
       [ 162,  65, -315], [  52,  52, -378], [ -72,  35, -335], [-155,  20, -248],
