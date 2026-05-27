@@ -1,44 +1,39 @@
 import * as THREE from 'three';
 
-const TRAIL_SEGS = 80; // number of ribbon segments
-
 /**
- * Wide ribbon trail — stores N world-space positions + right vectors,
- * builds a quad-strip mesh that fades from full-opacity at the front
- * to transparent at the tail. Looks like thick glowing streaks.
+ * Ribbon trail behind each car.
+ * Width = car's base width; 4–6 car-lengths long; solid at source → transparent.
  */
 export class Trail {
-  private _positions: THREE.Vector3[] = [];
-  private _rights:    THREE.Vector3[] = [];
-  private _posArr:    Float32Array;
-  private _alphaArr:  Float32Array;
-  private _posAttr:   THREE.BufferAttribute;
+  private static readonly SEGS = 30;
+
+  private _posArr:   Float32Array;
+  private _alphaArr: Float32Array;
+  private _posAttr:  THREE.BufferAttribute;
   private _alphaAttr: THREE.BufferAttribute;
-  private _geo:       THREE.BufferGeometry;
-  private _mesh:      THREE.Mesh;
-  private _width:     number;
+  private _geo:      THREE.BufferGeometry;
+  private _mesh:     THREE.Mesh;
 
-  constructor(scene: THREE.Scene, color: number, width: number, opacity = 1.0) {
-    this._width = width;
+  private _count = 0;   // how many positions have been recorded
 
-    const N = TRAIL_SEGS;
-    // 2 vertices per segment (left + right edge of ribbon)
+  constructor(scene: THREE.Scene, color: number, width: number, opacity: number) {
+    const N = Trail.SEGS;
     this._posArr   = new Float32Array(N * 2 * 3);
     this._alphaArr = new Float32Array(N * 2);
 
-    // Build static index array for quad strip: (N-1) quads × 2 triangles × 3 idx
-    const indices: number[] = [];
+    this._posAttr   = new THREE.BufferAttribute(this._posArr,   3).setUsage(THREE.DynamicDrawUsage);
+    this._alphaAttr = new THREE.BufferAttribute(this._alphaArr, 1).setUsage(THREE.DynamicDrawUsage);
+
+    const idx: number[] = [];
     for (let i = 0; i < N - 1; i++) {
       const a = i * 2, b = i * 2 + 1, c = (i + 1) * 2, d = (i + 1) * 2 + 1;
-      indices.push(a, c, b,  b, c, d);
+      idx.push(a, c, b,  b, c, d);
     }
 
     this._geo = new THREE.BufferGeometry();
-    this._posAttr   = new THREE.BufferAttribute(this._posArr,   3).setUsage(THREE.DynamicDrawUsage);
-    this._alphaAttr = new THREE.BufferAttribute(this._alphaArr, 1).setUsage(THREE.DynamicDrawUsage);
     this._geo.setAttribute('position', this._posAttr);
     this._geo.setAttribute('aAlpha',   this._alphaAttr);
-    this._geo.setIndex(indices);
+    this._geo.setIndex(idx);
     this._geo.setDrawRange(0, 0);
 
     const mat = new THREE.ShaderMaterial({
@@ -74,49 +69,49 @@ export class Trail {
   }
 
   /**
-   * Call once per frame.  pos = world position of the trail origin (back of car).
-   * right = world-space right vector of the car.
+   * Call once per frame with the car's rear-center position and right vector.
+   * @param pos   rear center of the car
+   * @param right track-right unit vector (for ribbon width)
+   * @param width half-width of the ribbon
    */
-  update(pos: THREE.Vector3, right: THREE.Vector3) {
-    this._positions.unshift(pos.clone());
-    this._rights.unshift(right.clone());
+  update(pos: THREE.Vector3, right: THREE.Vector3, width: number) {
+    const N = Trail.SEGS;
+    if (this._count < N) this._count++;
 
-    if (this._positions.length > TRAIL_SEGS) {
-      this._positions.pop();
-      this._rights.pop();
+    // Shift history backward (oldest drops off end)
+    for (let i = this._count - 1; i > 0; i--) {
+      const dst = i * 6, src = (i - 1) * 6;
+      this._posArr[dst    ] = this._posArr[src    ];
+      this._posArr[dst + 1] = this._posArr[src + 1];
+      this._posArr[dst + 2] = this._posArr[src + 2];
+      this._posArr[dst + 3] = this._posArr[src + 3];
+      this._posArr[dst + 4] = this._posArr[src + 4];
+      this._posArr[dst + 5] = this._posArr[src + 5];
     }
+    // Insert newest at index 0
+    const hw = width * 0.5;
+    const L  = pos.clone().addScaledVector(right,  hw);
+    const R  = pos.clone().addScaledVector(right, -hw);
+    this._posArr[0] = L.x; this._posArr[1] = L.y; this._posArr[2] = L.z;
+    this._posArr[3] = R.x; this._posArr[4] = R.y; this._posArr[5] = R.z;
 
-    const n  = this._positions.length;
-    const hw = this._width * 0.5;
-
-    for (let i = 0; i < n; i++) {
-      const p = this._positions[i];
-      const r = this._rights[i];
-      const b = i * 6;
-      // Left vertex
-      this._posArr[b    ] = p.x - r.x * hw;
-      this._posArr[b + 1] = p.y - r.y * hw;
-      this._posArr[b + 2] = p.z - r.z * hw;
-      // Right vertex
-      this._posArr[b + 3] = p.x + r.x * hw;
-      this._posArr[b + 4] = p.y + r.y * hw;
-      this._posArr[b + 5] = p.z + r.z * hw;
-
-      // Alpha: sharp at front, smooth cubic fade to zero
-      const t  = i / (n - 1);                // 0 = front, 1 = tail
-      const a  = Math.pow(1 - t, 1.6);
+    // Recompute alpha: newest = 1.0, oldest = 0.0, quadratic falloff
+    for (let i = 0; i < this._count; i++) {
+      const t = i / Math.max(1, this._count - 1);
+      const a = (1 - t) * (1 - t);   // quadratic: full at start, 0 at end
       this._alphaArr[i * 2    ] = a;
       this._alphaArr[i * 2 + 1] = a;
     }
 
     this._posAttr.needsUpdate   = true;
     this._alphaAttr.needsUpdate = true;
-    // Draw (n-1) quads → (n-1)*6 indices
-    this._geo.setDrawRange(0, Math.max(0, (n - 1) * 6));
+
+    const indexCount = Math.max(0, this._count - 1) * 6;
+    this._geo.setDrawRange(0, indexCount);
   }
 
   dispose() {
     this._geo.dispose();
-    (this._mesh.material as THREE.ShaderMaterial).dispose();
+    this._mesh.removeFromParent();
   }
 }
