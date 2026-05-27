@@ -8,7 +8,12 @@ export interface TrackFrame {
   up:      THREE.Vector3;
 }
 
-/** Bright neon-ribbon track: dark tarmac surface + glowing edge tubes */
+/**
+ * Track: dark charcoal ribbon in the void.
+ * - Surface: ~#1a1a1a, no markings
+ * - Edges: glowing white tubes for the neon-rail look
+ * - No lane dashes (reference has none)
+ */
 export class Track {
   readonly def:   TrackDef;
   readonly steps: number;
@@ -28,8 +33,6 @@ export class Track {
     this._buildRacingLine();
     this._buildSurface(scene);
     this._buildEdgeTubes(scene);
-    this._buildCenterLine(scene);
-    this._buildStartGate(scene);
     this._buildMinimap();
   }
 
@@ -98,17 +101,15 @@ export class Track {
     }
   }
 
-  // ── Visuals ───────────────────────────────────────────────────────────────
-
-  /** Track surface — near-black, barely visible, reinforces the ribbon in void aesthetic */
+  // ── Track surface: dark charcoal, matte reflective ────────────────────────
   private _buildSurface(scene: THREE.Scene) {
     const half   = TRACK_WIDTH / 2;
     const posArr = new Float32Array(this.steps * 2 * 3);
     for (let i = 0; i < this.steps; i++) {
       const { pos, right, up } = this.frames[i];
       const b = i * 6;
-      const L = pos.clone().addScaledVector(right,  half).addScaledVector(up, -0.05);
-      const R = pos.clone().addScaledVector(right, -half).addScaledVector(up, -0.05);
+      const L = pos.clone().addScaledVector(right,  half).addScaledVector(up, -0.03);
+      const R = pos.clone().addScaledVector(right, -half).addScaledVector(up, -0.03);
       posArr.set([L.x, L.y, L.z, R.x, R.y, R.z], b);
     }
     const idx: number[] = [];
@@ -122,14 +123,14 @@ export class Track {
     geo.setIndex(idx);
     geo.computeVertexNormals();
     scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-      color:     0x111118,
-      roughness: 1,
-      metalness: 0,
+      color:     0x1a1a1a,   // dark charcoal (~#1A1A1A matches reference)
+      roughness: 0.80,
+      metalness: 0.10,
       side:      THREE.DoubleSide,
     })));
   }
 
-  /** Glowing edge tubes — white WipEout style */
+  /** Glowing white neon edge tubes */
   private _buildEdgeTubes(scene: THREE.Scene) {
     const half = TRACK_WIDTH / 2;
     for (const side of [1, -1] as const) {
@@ -140,65 +141,16 @@ export class Track {
       }
       const curve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5);
 
-      // Thin white core — triggers white bloom, no heavy colour halo
-      const coreGeo = new THREE.TubeGeometry(curve, this.steps, 0.10, 5, true);
-      scene.add(new THREE.Mesh(coreGeo, new THREE.MeshStandardMaterial({
+      // White glowing core — bright enough to bloom well
+      const geo = new THREE.TubeGeometry(curve, this.steps, 0.09, 6, true);
+      scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
         color:             0xffffff,
         emissive:          0xffffff,
-        emissiveIntensity: 3.5,
+        emissiveIntensity: 4.5,    // very bright → strong bloom
         roughness:         0,
         metalness:         0,
       })));
     }
-  }
-
-  /** Three-lane road markings: 2 internal dashed dividers matching the reference video */
-  private _buildCenterLine(scene: THREE.Scene) {
-    const DASH_ON  = 20;
-    const DASH_OFF = 12;
-    const dashMat  = new THREE.MeshBasicMaterial({
-      color:       0xffffff,
-      blending:    THREE.AdditiveBlending,
-      depthWrite:  false,
-      transparent: true,
-      opacity:     0.80,
-      side:        THREE.DoubleSide,
-    });
-    // Two dividers at ±1/3 of track half-width (creates 3 equal lanes)
-    const laneOffsets = [-TRACK_WIDTH / 3, TRACK_WIDTH / 3];
-    for (const lat of laneOffsets) {
-      for (let i = 0; i < this.steps; i++) {
-        if (i % (DASH_ON + DASH_OFF) >= DASH_ON) continue;
-        const { pos, tangent, right, up } = this.frames[i];
-        const dashGeo = new THREE.PlaneGeometry(0.22, 1.8);
-        const mesh    = new THREE.Mesh(dashGeo, dashMat);
-        mesh.position.copy(pos)
-          .addScaledVector(right, lat)
-          .addScaledVector(up, 0.06);
-        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
-        mesh.rotateX(Math.PI / 2);
-        scene.add(mesh);
-      }
-    }
-  }
-
-  /** Start/finish glowing gate */
-  private _buildStartGate(scene: THREE.Scene) {
-    const f    = this.frames[0];
-    const half = TRACK_WIDTH / 2;
-    const mat  = new THREE.MeshBasicMaterial({
-      color:     0xffffff,
-      blending:  THREE.AdditiveBlending,
-      transparent: true,
-      opacity:   0.9,
-      depthWrite: false,
-      side:      THREE.DoubleSide,
-    });
-    const geo = new THREE.PlaneGeometry(TRACK_WIDTH, 0.5);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(f.pos).addScaledVector(f.up, 0.55);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), f.tangent);
-    scene.add(mesh);
   }
 
   private _buildMinimap() {
