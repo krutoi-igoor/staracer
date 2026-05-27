@@ -50,6 +50,7 @@ export class Game {
 
   private _camPos    = new THREE.Vector3();
   private _camLookAt = new THREE.Vector3();
+  private _camUp     = new THREE.Vector3(0, 1, 0); // smoothed camera up for banking
   private _currentFOV = 72;
 
   // Speed-line particles (void streaks)
@@ -159,7 +160,7 @@ export class Game {
   }
 
   private _buildSpeedLines() {
-    const N = 400;
+    const N = 600;
     this._slBuf  = new Float32Array(N * 2 * 3);
     this._slAttr = new THREE.BufferAttribute(this._slBuf, 3).setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < N; i++) this._resetLine(i);
@@ -177,12 +178,17 @@ export class Game {
   }
 
   private _resetLine(i: number) {
-    // Reset to a point in a tube around the camera forward axis
-    const r   = 1.5 + Math.random() * 4;
+    // Reset to a point in a cone around the camera forward axis
+    const r   = 0.8 + Math.random() * 5.5;
     const ang  = Math.random() * Math.PI * 2;
-    this._slBuf[i * 3    ] = Math.cos(ang) * r;
-    this._slBuf[i * 3 + 1] = Math.sin(ang) * r;
-    this._slBuf[i * 3 + 2] = -(40 + Math.random() * 60); // ahead in camera space
+    const len  = 1.8 + Math.random() * 2.5; // streak length
+    this._slBuf[i * 6    ] = Math.cos(ang) * r;
+    this._slBuf[i * 6 + 1] = Math.sin(ang) * r;
+    this._slBuf[i * 6 + 2] = -(35 + Math.random() * 55); // ahead in camera space
+    // Tail point slightly further ahead (rendered as a streak pair)
+    this._slBuf[i * 6 + 3] = Math.cos(ang) * r * 0.96;
+    this._slBuf[i * 6 + 4] = Math.sin(ang) * r * 0.96;
+    this._slBuf[i * 6 + 5] = this._slBuf[i * 6 + 2] + len;
   }
 
   private _setupInput(controller: 'keyboard' | 'mouse') {
@@ -390,16 +396,19 @@ export class Game {
     if (dt <= 0) {
       this._camPos.copy(desired);
       this._camLookAt.copy(desiredLook);
+      this._camUp.copy(up);
     } else {
       const a  = 1 - Math.pow(0.001, dt / 0.10);
       const al = 1 - Math.pow(0.001, dt / 0.06);
+      const au = 1 - Math.pow(0.001, dt / 0.18); // slower banking roll
       this._camPos.lerp(desired, a);
       this._camLookAt.lerp(desiredLook, al);
+      this._camUp.lerp(up, au).normalize();
     }
 
     this.camera.position.copy(this._camPos);
+    this.camera.up.copy(this._camUp);   // must be set BEFORE lookAt
     this.camera.lookAt(this._camLookAt);
-    this.camera.up.copy(up);
 
     // Camera shake from collisions
     if (this._shakeAmt > 0.01) {
@@ -414,21 +423,21 @@ export class Game {
     const spd = this.player.speed / SPEED_PLAYER_MAX;
     const mat = this._speedLines.material as THREE.LineBasicMaterial;
 
-    // Only show at higher speeds
-    mat.opacity = Math.max(0, (spd - 0.5) * 1.4);
+    // Ramp up quickly above 35% speed
+    mat.opacity = Math.max(0, Math.min(1, (spd - 0.35) * 2.2));
 
-    if (spd < 0.3) return;
+    if (spd < 0.2) return;
 
     // Move lines toward camera (in camera-local Z)
-    const streak = 80 * spd * dt;
+    const streak = 90 * spd * dt;
     this._speedLines.position.copy(this.camera.position);
     this._speedLines.quaternion.copy(this.camera.quaternion);
 
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 300; i++) {
       this._slBuf[i * 6 + 2] += streak;
       this._slBuf[i * 6 + 5] += streak;
       // Reset when they pass behind camera
-      if (this._slBuf[i * 6 + 2] > 2) this._resetLine(i);
+      if (this._slBuf[i * 6 + 2] > 3) this._resetLine(i);
     }
     this._slAttr.needsUpdate = true;
   }
