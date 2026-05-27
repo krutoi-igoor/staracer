@@ -1,7 +1,9 @@
-export const TRACK_WIDTH  = 11;
-export const TOTAL_LAPS   = 3;
-export const NUM_AI       = 7;
+// ─── Track geometry ──────────────────────────────────────────────────────────
+export const TRACK_WIDTH   = 11;
+export const TOTAL_LAPS    = 3;
+export const NUM_AI        = 7;
 
+// ─── Difficulty presets ───────────────────────────────────────────────────────
 export interface DifficultyConfig {
   id:          string;
   label:       string;
@@ -19,6 +21,7 @@ export const DIFFICULTIES: DifficultyConfig[] = [
   { id: 'insane', label: 'Insane', aiSpeedBase: 0.051, aiSpeedVar: 0.002, aiReaction: 7.5, aiLookAhead: 68, aiBlock: true  },
 ];
 
+// ─── Car specs — width:length ratio ~1:1.3 (stubby arrows, matches reference) ─
 export interface CarSpec {
   id:           string;
   label:        string;
@@ -32,20 +35,20 @@ export interface CarSpec {
 }
 
 export const CAR_SPECS: CarSpec[] = [
-  { id: 'arrow',   label: 'Arrow',   color: 0xffffff, width: 1.0, length: 3.2, topSpeedMult: 1.00, accelMult: 1.00, handleMult: 1.00, desc: 'Balanced all-rounder'   },
-  { id: 'bullet',  label: 'Bullet',  color: 0xff2244, width: 0.85, length: 4.2, topSpeedMult: 1.28, accelMult: 0.72, handleMult: 0.68, desc: 'Top-speed monster — hard to steer' },
-  { id: 'wedge',   label: 'Wedge',   color: 0x33aaff, width: 1.4, length: 2.8, topSpeedMult: 0.88, accelMult: 1.30, handleMult: 1.48, desc: 'High cornering grip'    },
-  { id: 'blade',   label: 'Blade',   color: 0xffcc00, width: 0.80, length: 3.8, topSpeedMult: 1.15, accelMult: 1.10, handleMult: 0.95, desc: 'Pierces the draft'      },
-  { id: 'dart',    label: 'Dart',    color: 0x00ff88, width: 0.9, length: 3.0, topSpeedMult: 0.88, accelMult: 1.45, handleMult: 1.55, desc: 'Explosive acceleration' },
-  { id: 'phantom', label: 'Phantom', color: 0xcc44ff, width: 1.25, length: 3.5, topSpeedMult: 1.08, accelMult: 0.88, handleMult: 1.18, desc: 'Ghostly handler'        },
+  { id: 'arrow',   label: 'Arrow',   color: 0xffffff, width: 1.0,  length: 1.4, topSpeedMult: 1.00, accelMult: 1.00, handleMult: 1.00, desc: 'Balanced all-rounder'         },
+  { id: 'bullet',  label: 'Bullet',  color: 0xff2244, width: 0.85, length: 1.8, topSpeedMult: 1.28, accelMult: 0.72, handleMult: 0.68, desc: 'Top-speed monster — hard to steer' },
+  { id: 'wedge',   label: 'Wedge',   color: 0x33aaff, width: 1.4,  length: 1.2, topSpeedMult: 0.88, accelMult: 1.30, handleMult: 1.48, desc: 'High cornering grip'          },
+  { id: 'blade',   label: 'Blade',   color: 0xffcc00, width: 0.80, length: 1.6, topSpeedMult: 1.15, accelMult: 1.10, handleMult: 0.95, desc: 'Pierces the draft'            },
+  { id: 'dart',    label: 'Dart',    color: 0x00ff88, width: 0.9,  length: 1.3, topSpeedMult: 0.88, accelMult: 1.45, handleMult: 1.55, desc: 'Explosive acceleration'       },
+  { id: 'phantom', label: 'Phantom', color: 0xcc44ff, width: 1.25, length: 1.5, topSpeedMult: 1.08, accelMult: 0.88, handleMult: 1.18, desc: 'Ghostly handler'              },
 ];
 
+// ─── Track definitions ────────────────────────────────────────────────────────
 export interface TrackDef {
   id:     string;
   label:  string;
   desc:   string;
   color:  number;
-  edge:   number;
   steps:  number;
   points: [number, number, number][];
 }
@@ -53,7 +56,7 @@ export interface TrackDef {
 export const TRACK_DEFS: TrackDef[] = [
   {
     id: 'midnight', label: 'Midnight Circuit', desc: 'F1-style · hairpin & esses',
-    color: 0x030312, edge: 0x00ddff, steps: 600,
+    color: 0x030312, steps: 600,
     points: [
       [   0,   0,    0], [ 120,   0,  -60], [ 220,  10, -160], [ 280,   0, -260],
       [ 250, -18, -345], [ 140,  -5, -365], [  20,   0, -315], [-105,  12, -265],
@@ -63,7 +66,7 @@ export const TRACK_DEFS: TrackDef[] = [
   },
   {
     id: 'neon_oval', label: 'Neon Oval', desc: 'High-speed oval · chicane',
-    color: 0x020210, edge: 0xff44aa, steps: 500,
+    color: 0x020210, steps: 500,
     points: [
       [   0,  0,    0], [ 100,  0,  -40], [ 220,  6,  -90], [ 300,  0, -190],
       [ 290, -7, -300], [ 220,  0, -390], [ 100,  6, -430], [   0,  0, -450],
@@ -73,7 +76,7 @@ export const TRACK_DEFS: TrackDef[] = [
   },
   {
     id: 'alpine', label: 'Alpine Helix', desc: 'Elevation changes · tight hairpins',
-    color: 0x020d02, edge: 0x44ff88, steps: 700,
+    color: 0x020d02, steps: 700,
     points: [
       [   0,   0,    0], [  85,  22,  -85], [ 175,  48, -135], [ 205,  62, -215],
       [ 162,  65, -315], [  52,  52, -378], [ -72,  35, -335], [-155,  20, -248],
@@ -82,40 +85,30 @@ export const TRACK_DEFS: TrackDef[] = [
   },
 ];
 
-// ── Player physics ─────────────────────────────────────────────────────────
-
+// ─── Player physics ───────────────────────────────────────────────────────────
 export const SPEED_PLAYER_MAX = 0.052;
 export const SPEED_ACCEL      = 0.022;
 export const SPEED_BRAKE      = 0.040;
 export const SPEED_FRICTION   = 0.010;
 
-/** Lateral velocity model (replaces position-snap steering) */
-export const LAT_ACCEL        = 14.0;    // units/s² of lateral acceleration input
-export const LAT_DAMP         = 4.5;     // lateral velocity friction (1/s)
-export const MAX_LAT          = TRACK_WIDTH * 0.46;  // 5.06 — uses most of track width
+export const LAT_ACCEL        = 14.0;
+export const LAT_DAMP         = 4.5;
+export const MAX_LAT          = TRACK_WIDTH * 0.46;
 
-/** Centrifugal drift — pushes car outward in corners */
-export const CURV_DRIFT       = 30.0;   // lateral drift force scale
-export const CURV_LOOK        = 15;     // frames ahead to measure curvature
+export const CURV_DRIFT       = 30.0;
+export const CURV_LOOK        = 15;
+export const FALL_TRIGGER     = TRACK_WIDTH * 0.50;
 
-/**
- * Fall zone = exact track half-width.
- * Centrifugal drift can push car beyond MAX_LAT into fall zone in tight corners.
- */
-export const FALL_TRIGGER     = TRACK_WIDTH * 0.50;  // 5.5
-
-// ── Draft ──────────────────────────────────────────────────────────────────
+// ─── Draft ────────────────────────────────────────────────────────────────────
 export const CAR_RADIUS       = 1.6;
 export const DRAFT_RANGE      = 0.020;
 export const DRAFT_LAT_THRESH = 0.40;
 export const DRAFT_BOOST      = 0.008;
 
-// ── AI rubber-band ─────────────────────────────────────────────────────────
-/** If player leads this many lap-fractions, AI gently catch up */
+// ─── AI rubber-band ───────────────────────────────────────────────────────────
 export const RUBBER_BAND_LEAD = 0.12;
-/** Max extra speed fraction added by rubber-band */
 export const RUBBER_BAND_MAX  = 0.007;
 
-export const AI_COLORS        = [0xff3366, 0x44aaff, 0xffcc00, 0x00ff88, 0xaa44ff, 0xff8844, 0x44ffcc];
-export const AI_NAMES         = ['Mint', 'Azure', 'Amber', 'Violet', 'Coral', 'Slate', 'Lime'];
-export const MULTIPLAYER_URL  = (import.meta as any).env?.VITE_PARTY_URL ?? '';
+export const AI_COLORS = [0xff3366, 0x44aaff, 0xffcc00, 0x00ff88, 0xaa44ff, 0xff8844, 0x44ffcc];
+export const AI_NAMES  = ['Mint', 'Azure', 'Amber', 'Violet', 'Coral', 'Slate', 'Lime'];
+export const MULTIPLAYER_URL = (import.meta as any).env?.VITE_PARTY_URL ?? '';
