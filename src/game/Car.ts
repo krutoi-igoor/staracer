@@ -20,66 +20,60 @@ function buildBody(spec: CarSpec, color: number): THREE.Group {
 
   const W  = spec.width;
   const L  = spec.length;
-  const bw = W * 0.52;   // body shaft half-width
-  const H  = 0.20;       // car body height
+  const bw = W * 0.52;
+  const H  = 0.20;
 
-  // ── Base body — flat arrow wedge ──────────────────────────────────────────
+  // Arrow wedge shape
   const shape = new THREE.Shape();
-  shape.moveTo(0,         L * 0.50);   // front tip
-  shape.lineTo( W * 0.5,  L * 0.04);   // right shoulder outer
-  shape.lineTo( bw * 0.5, -L * 0.48);  // right rear
-  shape.lineTo(-bw * 0.5, -L * 0.48);  // left rear
-  shape.lineTo(-W * 0.5,  L * 0.04);   // left shoulder outer
+  shape.moveTo(0,         L * 0.50);
+  shape.lineTo( W * 0.5,  L * 0.04);
+  shape.lineTo( bw * 0.5, -L * 0.48);
+  shape.lineTo(-bw * 0.5, -L * 0.48);
+  shape.lineTo(-W * 0.5,  L * 0.04);
   shape.closePath();
 
-  // MeshPhysicalMaterial: clearcoat gives specular highlights → no longer looks "cheap"
-  const bodyMat = new THREE.MeshPhysicalMaterial({
+  // MeshStandardMaterial: emissive neon look, cheap, no specular hotspots in the void
+  const bodyMat = new THREE.MeshStandardMaterial({
     color,
-    emissive:             color,
-    emissiveIntensity:    0.55,   // reduced — now directional lights do the work
-    metalness:            0.55,
-    roughness:            0.25,
-    clearcoat:            0.90,   // glossy clear top coat
-    clearcoatRoughness:   0.10,
-    reflectivity:         0.80,
+    emissive:          color,
+    emissiveIntensity: 1.4,   // glow-forward — looks neon in the void
+    metalness:         0.15,
+    roughness:         0.55,
   });
 
   const bodyGeo = new THREE.ExtrudeGeometry(shape, {
     depth:          H,
     bevelEnabled:   true,
-    bevelThickness: 0.04,
-    bevelSize:      0.04,
+    bevelThickness: 0.03,
+    bevelSize:      0.03,
     bevelSegments:  2,
   });
   bodyGeo.rotateX(Math.PI / 2);
   bodyGeo.translate(0, H / 2, 0);
   g.add(new THREE.Mesh(bodyGeo, bodyMat));
 
-  // ── Raised cockpit / dorsal fin ───────────────────────────────────────────
+  // Raised cockpit ridge — adds 3D depth without expensive materials
   const cockpitShape = new THREE.Shape();
-  cockpitShape.moveTo(0,          L * 0.22);    // front
-  cockpitShape.lineTo( W * 0.20,  0);
-  cockpitShape.lineTo( W * 0.16,  -L * 0.18);  // rear
-  cockpitShape.lineTo(-W * 0.16,  -L * 0.18);
-  cockpitShape.lineTo(-W * 0.20,  0);
+  cockpitShape.moveTo(0,          L * 0.22);
+  cockpitShape.lineTo( W * 0.18,  0);
+  cockpitShape.lineTo( W * 0.14,  -L * 0.18);
+  cockpitShape.lineTo(-W * 0.14,  -L * 0.18);
+  cockpitShape.lineTo(-W * 0.18,  0);
   cockpitShape.closePath();
 
   const cockpitGeo = new THREE.ExtrudeGeometry(cockpitShape, {
-    depth:          0.10,
-    bevelEnabled:   true,
-    bevelThickness: 0.025,
-    bevelSize:      0.025,
-    bevelSegments:  2,
+    depth:          0.09,
+    bevelEnabled:   false,
   });
   cockpitGeo.rotateX(Math.PI / 2);
-  cockpitGeo.translate(0, H + 0.10 / 2, 0);
-  g.add(new THREE.Mesh(cockpitGeo, new THREE.MeshPhysicalMaterial({
-    color:               0x080810,  // near-black cockpit canopy
-    metalness:           0.20,
-    roughness:           0.10,
-    clearcoat:           1.0,
-    clearcoatRoughness:  0.05,
-    transmission:        0.20,     // slightly transparent canopy
+  cockpitGeo.translate(0, H, 0);
+  // Slightly darker than body — same color family, not gloss canopy
+  g.add(new THREE.Mesh(cockpitGeo, new THREE.MeshStandardMaterial({
+    color:             0x050508,
+    emissive:          color,
+    emissiveIntensity: 0.25,
+    metalness:         0.1,
+    roughness:         0.8,
   })));
 
   // ── Color underglow puddle ────────────────────────────────────────────────
