@@ -16,48 +16,86 @@ function trackDelta(a: number, b: number): number {
 }
 
 function buildBody(spec: CarSpec, color: number): THREE.Group {
-  const g   = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({
-    color,
-    emissive:          color,
-    emissiveIntensity: 1.6,
-    roughness:         0.25,
-    metalness:         0.4,
-  });
+  const g = new THREE.Group();
 
   const W  = spec.width;
   const L  = spec.length;
-  const bw = W * 0.50;   // body shaft half-width
-  const H  = 0.18;       // car height
+  const bw = W * 0.52;   // body shaft half-width
+  const H  = 0.20;       // car body height
 
-  // Arrow shape — stubby (1:1.2 ratio): wide triangular wedge with a short tail
+  // ── Base body — flat arrow wedge ──────────────────────────────────────────
   const shape = new THREE.Shape();
-  shape.moveTo(0,        L * 0.50);   // front tip
-  shape.lineTo( W * 0.5, L * 0.05);   // right shoulder outer
-  shape.lineTo( bw * 0.5, -L * 0.48); // right rear
-  shape.lineTo(-bw * 0.5, -L * 0.48); // left rear
-  shape.lineTo(-W * 0.5, L * 0.05);   // left shoulder outer
+  shape.moveTo(0,         L * 0.50);   // front tip
+  shape.lineTo( W * 0.5,  L * 0.04);   // right shoulder outer
+  shape.lineTo( bw * 0.5, -L * 0.48);  // right rear
+  shape.lineTo(-bw * 0.5, -L * 0.48);  // left rear
+  shape.lineTo(-W * 0.5,  L * 0.04);   // left shoulder outer
   shape.closePath();
 
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: H, bevelEnabled: false });
-  geo.rotateX(Math.PI / 2);
-  geo.translate(0, H / 2, 0);
-  g.add(new THREE.Mesh(geo, mat));
+  // MeshPhysicalMaterial: clearcoat gives specular highlights → no longer looks "cheap"
+  const bodyMat = new THREE.MeshPhysicalMaterial({
+    color,
+    emissive:             color,
+    emissiveIntensity:    0.55,   // reduced — now directional lights do the work
+    metalness:            0.55,
+    roughness:            0.25,
+    clearcoat:            0.90,   // glossy clear top coat
+    clearcoatRoughness:   0.10,
+    reflectivity:         0.80,
+  });
 
-  // Color-matched underglow (subtle)
+  const bodyGeo = new THREE.ExtrudeGeometry(shape, {
+    depth:          H,
+    bevelEnabled:   true,
+    bevelThickness: 0.04,
+    bevelSize:      0.04,
+    bevelSegments:  2,
+  });
+  bodyGeo.rotateX(Math.PI / 2);
+  bodyGeo.translate(0, H / 2, 0);
+  g.add(new THREE.Mesh(bodyGeo, bodyMat));
+
+  // ── Raised cockpit / dorsal fin ───────────────────────────────────────────
+  const cockpitShape = new THREE.Shape();
+  cockpitShape.moveTo(0,          L * 0.22);    // front
+  cockpitShape.lineTo( W * 0.20,  0);
+  cockpitShape.lineTo( W * 0.16,  -L * 0.18);  // rear
+  cockpitShape.lineTo(-W * 0.16,  -L * 0.18);
+  cockpitShape.lineTo(-W * 0.20,  0);
+  cockpitShape.closePath();
+
+  const cockpitGeo = new THREE.ExtrudeGeometry(cockpitShape, {
+    depth:          0.10,
+    bevelEnabled:   true,
+    bevelThickness: 0.025,
+    bevelSize:      0.025,
+    bevelSegments:  2,
+  });
+  cockpitGeo.rotateX(Math.PI / 2);
+  cockpitGeo.translate(0, H + 0.10 / 2, 0);
+  g.add(new THREE.Mesh(cockpitGeo, new THREE.MeshPhysicalMaterial({
+    color:               0x080810,  // near-black cockpit canopy
+    metalness:           0.20,
+    roughness:           0.10,
+    clearcoat:           1.0,
+    clearcoatRoughness:  0.05,
+    transmission:        0.20,     // slightly transparent canopy
+  })));
+
+  // ── Color underglow puddle ────────────────────────────────────────────────
   const puddle = new THREE.Mesh(
-    new THREE.PlaneGeometry(spec.width * 1.6, spec.length * 1.4),
+    new THREE.PlaneGeometry(W * 1.8, L * 1.6),
     new THREE.MeshBasicMaterial({
       color,
       blending:    THREE.AdditiveBlending,
       transparent: true,
-      opacity:     0.12,
+      opacity:     0.14,
       depthWrite:  false,
       side:        THREE.DoubleSide,
     }),
   );
   puddle.rotation.x = -Math.PI / 2;
-  puddle.position.y = -0.28;
+  puddle.position.y = -0.25;
   g.add(puddle);
 
   return g;
@@ -187,7 +225,9 @@ export class Car {
 
       if (input.mouseLatTarget !== null) {
         const err = input.mouseLatTarget - this.lateral;
-        this.lateralVel += err * 9.0 * dt - this.lateralVel * (LAT_DAMP - 0.5) * dt;
+        // Critically-damped spring: ω=5, ζ=1 → responsive with zero oscillation
+        const accel = err * 25 - this.lateralVel * 10;
+        this.lateralVel += accel * dt;
       } else {
         const steerDir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
         this.lateralVel += steerDir * LAT_ACCEL * this.spec.handleMult * dt;
