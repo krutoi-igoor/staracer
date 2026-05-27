@@ -32,12 +32,12 @@ export interface CarSpec {
 }
 
 export const CAR_SPECS: CarSpec[] = [
-  { id: 'arrow',   label: 'Arrow',   color: 0xffffff, width: 1.3, length: 3.2, topSpeedMult: 1.00, accelMult: 1.00, handleMult: 1.00, desc: 'Balanced all-rounder'   },
-  { id: 'bullet',  label: 'Bullet',  color: 0xff2244, width: 1.0, length: 4.2, topSpeedMult: 1.28, accelMult: 0.72, handleMult: 0.68, desc: 'Top-speed monster — hard to steer' },
-  { id: 'wedge',   label: 'Wedge',   color: 0x33aaff, width: 1.7, length: 2.8, topSpeedMult: 0.88, accelMult: 1.30, handleMult: 1.48, desc: 'High cornering grip'    },
-  { id: 'blade',   label: 'Blade',   color: 0xffcc00, width: 0.9, length: 3.8, topSpeedMult: 1.15, accelMult: 1.10, handleMult: 0.95, desc: 'Pierces the draft'      },
-  { id: 'dart',    label: 'Dart',    color: 0x00ff88, width: 1.1, length: 3.0, topSpeedMult: 0.88, accelMult: 1.45, handleMult: 1.55, desc: 'Explosive acceleration' },
-  { id: 'phantom', label: 'Phantom', color: 0xcc44ff, width: 1.5, length: 3.5, topSpeedMult: 1.08, accelMult: 0.88, handleMult: 1.18, desc: 'Ghostly handler'        },
+  { id: 'arrow',   label: 'Arrow',   color: 0xffffff, width: 1.0, length: 3.2, topSpeedMult: 1.00, accelMult: 1.00, handleMult: 1.00, desc: 'Balanced all-rounder'   },
+  { id: 'bullet',  label: 'Bullet',  color: 0xff2244, width: 0.85, length: 4.2, topSpeedMult: 1.28, accelMult: 0.72, handleMult: 0.68, desc: 'Top-speed monster — hard to steer' },
+  { id: 'wedge',   label: 'Wedge',   color: 0x33aaff, width: 1.4, length: 2.8, topSpeedMult: 0.88, accelMult: 1.30, handleMult: 1.48, desc: 'High cornering grip'    },
+  { id: 'blade',   label: 'Blade',   color: 0xffcc00, width: 0.80, length: 3.8, topSpeedMult: 1.15, accelMult: 1.10, handleMult: 0.95, desc: 'Pierces the draft'      },
+  { id: 'dart',    label: 'Dart',    color: 0x00ff88, width: 0.9, length: 3.0, topSpeedMult: 0.88, accelMult: 1.45, handleMult: 1.55, desc: 'Explosive acceleration' },
+  { id: 'phantom', label: 'Phantom', color: 0xcc44ff, width: 1.25, length: 3.5, topSpeedMult: 1.08, accelMult: 0.88, handleMult: 1.18, desc: 'Ghostly handler'        },
 ];
 
 export interface TrackDef {
