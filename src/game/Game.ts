@@ -6,10 +6,9 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { Track } from './Track';
 import { Car, CarInput, GridSlot } from './Car';
 import { HUD } from './HUD';
-import { BackgroundFX } from './BackgroundFX';
+import { BackgroundElements } from './BackgroundElements';
 import { resolveCollisions } from './Collision';
 import { Multiplayer } from './Multiplayer';
-import { Scores } from './Scores';
 import {
   AI_COLORS, AI_NAMES, NUM_AI, TOTAL_LAPS, SPEED_PLAYER_MAX, MAX_LAT,
   DifficultyConfig, CarSpec, TrackDef,
@@ -23,9 +22,9 @@ export interface GameConfig {
 }
 
 export class Game {
-  private renderer: THREE.WebGLRenderer;
-  private scene     = new THREE.Scene();
-  private camera    = new THREE.PerspectiveCamera(72, 1, 0.3, 3000);
+  private renderer:  THREE.WebGLRenderer;
+  private scene      = new THREE.Scene();
+  private camera     = new THREE.PerspectiveCamera(72, 1, 0.3, 3000);
   private composer!: EffectComposer;
   private _useComposer = true;
 
@@ -35,7 +34,7 @@ export class Game {
   allCars:          Car[] = [];
   private hud!:     HUD;
   private mp!:      Multiplayer;
-  private _bgfx!:   BackgroundFX;
+  private _bg!:     BackgroundElements;
 
   private keys: Record<string, boolean> = {};
   private _mouseX    = 0.5;
@@ -50,6 +49,7 @@ export class Game {
   private started  = false;
   private done     = false;
 
+  // Smoothed camera state
   private _camPos    = new THREE.Vector3();
   private _camLookAt = new THREE.Vector3();
   private _camUp     = new THREE.Vector3(0, 1, 0);
@@ -58,8 +58,7 @@ export class Game {
   private _onFinish: (time: number, bestLap: number, pos: number) => void;
   private _config:   GameConfig;
   private _listeners: (() => void)[] = [];
-
-  private _shakeAmt = 0;
+  private _shakeAmt  = 0;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -73,16 +72,14 @@ export class Game {
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: !isMobile,
-      alpha: true,              // transparent background so BackgroundFX shows through
+      antialias:       !isMobile,
       powerPreference: isMobile ? 'default' : 'high-performance',
+      // No alpha — single opaque canvas, background elements are Three.js geometry
     });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
-    this.renderer.setClearColor(0x000000, 0);   // fully transparent clear
+    this.renderer.setClearColor(0x000000, 1);
     this.renderer.toneMapping         = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure  = 0.80;
-
-    this._bgfx = new BackgroundFX();
+    this.renderer.toneMappingExposure  = 0.85;
 
     this._setupScene(config);
     this._setupBloom();
@@ -92,16 +89,18 @@ export class Game {
     const r = () => this._resize();
     window.addEventListener('resize', r);
     this._listeners.push(() => window.removeEventListener('resize', r));
-    this._listeners.push(() => this._bgfx.dispose());
   }
 
   private _setupScene(cfg: GameConfig) {
-    this.scene.background = null;  // transparent — BackgroundFX 2D canvas shows through
-    this.scene.add(new THREE.AmbientLight(0x111111, 1.0));
+    this.scene.background = new THREE.Color(0x000000);
+    this.scene.add(new THREE.AmbientLight(0x222222, 1.0));
 
     this.track = new Track(this.scene, cfg.track);
     this.hud   = new HUD(this.track);
     this.mp    = new Multiplayer(this.scene);
+
+    // Background elements: rings + speed lines (attached to camera)
+    this._bg = new BackgroundElements(this.camera, this.scene);
 
     const ROW_GAP   = 0.0105;
     const SIDES: (-1 | 0 | 1)[] = [-1, 1, -1, 1, -1, 1, -1];
@@ -137,14 +136,12 @@ export class Game {
     const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    // Bloom: moderate strength, tight radius — clean glow not "blown out"
-    const bloom = new UnrealBloomPass(
+    this.composer.addPass(new UnrealBloomPass(
       new THREE.Vector2(w, h),
-      1.20,   // strength
-      0.40,   // radius
-      0.55,   // threshold — track edges and emissive cars bloom cleanly
-    );
-    this.composer.addPass(bloom);
+      1.30,   // strength
+      0.42,   // radius
+      0.50,   // threshold — edge tubes (emissiveIntensity 4.5) and emissive cars bloom
+    ));
   }
 
   private _setupInput(controller: 'keyboard' | 'mouse') {
@@ -153,10 +150,10 @@ export class Game {
     const kd = (e: KeyboardEvent) => { this.keys[e.key.toLowerCase()] = true; };
     const ku = (e: KeyboardEvent) => { this.keys[e.key.toLowerCase()] = false; };
     window.addEventListener('keydown', kd);
-    window.addEventListener('keyup', ku);
+    window.addEventListener('keyup',   ku);
     this._listeners.push(
       () => window.removeEventListener('keydown', kd),
-      () => window.removeEventListener('keyup', ku),
+      () => window.removeEventListener('keyup',   ku),
     );
 
     if (controller === 'mouse') {
@@ -180,7 +177,7 @@ export class Game {
   }
 
   private _setupTouchControls() {
-    const ui = document.getElementById('game-ui')!;
+    const ui  = document.getElementById('game-ui')!;
     const pad = document.createElement('div');
     pad.id = 'touch-pad';
     pad.innerHTML = `
@@ -192,23 +189,22 @@ export class Game {
     ui.appendChild(pad);
 
     const bind = (id: string, key: string) => {
-      const el = document.getElementById(id)!;
+      const el   = document.getElementById(id)!;
       const down = (e: Event) => { e.preventDefault(); this.keys[key] = true; };
       const up   = (e: Event) => { e.preventDefault(); this.keys[key] = false; };
-      el.addEventListener('touchstart', down, { passive: false });
-      el.addEventListener('touchend',   up,   { passive: false });
-      el.addEventListener('touchcancel',up,   { passive: false });
+      el.addEventListener('touchstart',  down, { passive: false });
+      el.addEventListener('touchend',    up,   { passive: false });
+      el.addEventListener('touchcancel', up,   { passive: false });
       this._listeners.push(() => {
-        el.removeEventListener('touchstart', down);
-        el.removeEventListener('touchend',   up);
-        el.removeEventListener('touchcancel',up);
+        el.removeEventListener('touchstart',  down);
+        el.removeEventListener('touchend',    up);
+        el.removeEventListener('touchcancel', up);
       });
     };
     bind('touch-left',  'a');
     bind('touch-right', 'd');
     bind('touch-accel', 'w');
     bind('touch-brake', 's');
-
     this._listeners.push(() => pad.remove());
   }
 
@@ -257,8 +253,10 @@ export class Game {
     const dt = Math.min((raf - this.lastRaf) / 1000, 1 / 30);
     this.lastRaf = raf;
 
+    const spd = this.player.speed / SPEED_PLAYER_MAX;
+    this._bg.update(spd, dt);
+
     if (!this.started) {
-      this._bgfx.update(0, dt);
       this._updateCamera(0);
       this._render();
       return;
@@ -272,7 +270,7 @@ export class Game {
     for (const car of this.allCars) {
       car.update(dt, car.isPlayer ? this._input : null, this.track, this.allCars, this.player);
     }
-    const prevLat  = this.player.lateral;
+    const prevLat = this.player.lateral;
     resolveCollisions(this.allCars);
     const latDelta = Math.abs(this.player.lateral - prevLat);
     if (latDelta > 0.15) this._shakeAmt = Math.min(this._shakeAmt + latDelta * 1.2, 0.9);
@@ -293,8 +291,6 @@ export class Game {
       this._onFinish(this.elapsed, this.bestLap ?? this.elapsed, sorted.indexOf(this.player) + 1);
     }
 
-    const spd = this.player.speed / SPEED_PLAYER_MAX;
-    this._bgfx.update(spd, dt);
     this._updateCamera(dt);
     this.hud.update(this.player, this.allCars, this.elapsed, this.bestLap, this.track);
     this._render();
@@ -327,15 +323,16 @@ export class Game {
   private _updateCamera(dt: number) {
     const spd = this.player.speed / SPEED_PLAYER_MAX;
 
-    const { pos, tangent, up } = this.track.getTransform(this.player.trackT, this.player.lateral * 0.45);
+    const { pos, tangent, up } = this.track.getTransform(this.player.trackT, this.player.lateral * 0.40);
 
-    const camH    = 2.8 + spd * 1.2;
-    const camDist = 14 - spd * 3;
+    const camH    = 2.5 + spd * 1.0;
+    const camDist = 12 - spd * 2.5;
 
     const desired     = pos.clone().addScaledVector(tangent, -camDist).addScaledVector(up, camH);
-    const desiredLook = pos.clone().addScaledVector(tangent, 9).addScaledVector(up, -0.4);
+    const desiredLook = pos.clone().addScaledVector(tangent, 10).addScaledVector(up, -0.3);
 
-    const targetFOV  = 72 + spd * 32;
+    // Dynamic FOV
+    const targetFOV  = 72 + spd * 28;
     this._currentFOV += (targetFOV - this._currentFOV) * Math.min(dt * 5, 1);
     this.camera.fov   = this._currentFOV;
     this.camera.updateProjectionMatrix();
@@ -345,23 +342,26 @@ export class Game {
       this._camLookAt.copy(desiredLook);
       this._camUp.copy(up);
     } else {
-      const a  = 1 - Math.pow(0.001, dt / 0.10);
-      const al = 1 - Math.pow(0.001, dt / 0.06);
-      const au = 1 - Math.pow(0.001, dt / 0.18);
+      // Camera position — responsive (0.08s)
+      const a  = 1 - Math.pow(0.001, dt / 0.08);
+      // Look-at — very snappy (0.05s)
+      const al = 1 - Math.pow(0.001, dt / 0.05);
+      // Banking (up vector) — fast but smooth (0.07s) — more roll than before
+      const au = 1 - Math.pow(0.001, dt / 0.07);
       this._camPos.lerp(desired, a);
       this._camLookAt.lerp(desiredLook, al);
       this._camUp.lerp(up, au).normalize();
     }
 
     this.camera.position.copy(this._camPos);
-    this.camera.up.copy(this._camUp);
+    this.camera.up.copy(this._camUp);   // MUST be before lookAt
     this.camera.lookAt(this._camLookAt);
 
     if (this._shakeAmt > 0.01) {
       this._shakeAmt *= (1 - dt * 9);
       const s = this._shakeAmt;
-      this.camera.position.x += (Math.random() - 0.5) * s * 0.6;
-      this.camera.position.y += (Math.random() - 0.5) * s * 0.3;
+      this.camera.position.x += (Math.random() - 0.5) * s * 0.5;
+      this.camera.position.y += (Math.random() - 0.5) * s * 0.25;
     }
   }
 
