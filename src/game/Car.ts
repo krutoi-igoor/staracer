@@ -136,7 +136,8 @@ export class Car {
     this.lateral = isPlayer ? 0 : slot.side * MAX_LAT * 0.35;
 
     this.mesh  = buildBody(spec, color);
-    this._trail = new Trail(scene, color, isPlayer ? 0.9 : 0.5);
+    // Trail width matches car body width for a thick visible streak
+    this._trail = new Trail(scene, color, spec.width * 1.1, isPlayer ? 0.95 : 0.75);
     scene.add(this.mesh);
   }
 
@@ -261,13 +262,16 @@ export class Car {
   }
 
   private _placeMesh(track: Track) {
-    const { pos, tangent, up } = track.getTransform(this.trackT, this.lateral);
+    const { pos, tangent, right, up } = track.getTransform(this.trackT, this.lateral);
     this.currentTangent.copy(tangent);
     this.currentUp.copy(up);
     this.mesh.position.copy(pos);
     this.mesh.up.copy(up);
     this.mesh.lookAt(pos.clone().add(tangent));
-    this._trail.update(pos.clone().addScaledVector(tangent, -this.spec.length * 0.5));
+    this._trail.update(
+      pos.clone().addScaledVector(tangent, -this.spec.length * 0.5),
+      right,
+    );
   }
 
   private _aiStep(dt: number, track: Track, allCars: Car[], draftBoost: number, player?: Car) {
