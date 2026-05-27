@@ -2,8 +2,6 @@ import * as THREE from 'three';
 import { EffectComposer }  from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass }      from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { ShaderPass }      from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { FXAAShader }      from 'three/examples/jsm/shaders/FXAAShader.js';
 
 import { Track } from './Track';
 import { Car, CarInput } from './Car';
@@ -44,7 +42,6 @@ export class Game {
   private scene      = new THREE.Scene();
   private camera     = new THREE.PerspectiveCamera(72, 1, 0.3, 3000);
   private composer!: EffectComposer;
-  private _fxaaPass!: ShaderPass;
   private _useComposer = true;
 
   private track!:   Track;
@@ -95,7 +92,7 @@ export class Game {
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias:       false,  // FXAA handles AA in post-process (sharper than native)
+      antialias:       !isMobile,    // native AA — cleaner than FXAA for neon lines
       powerPreference: isMobile ? 'default' : 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
@@ -117,23 +114,8 @@ export class Game {
   private _setupScene(cfg: GameConfig) {
     this.scene.background = new THREE.Color(0x000000);
 
-    // Ambient — keeps void from being 100% black on dark surfaces
-    this.scene.add(new THREE.AmbientLight(0x20243a, 2.5));
-
-    // Key light: slightly from upper-right, blue-white. Gives cars sharp highlights.
-    const key = new THREE.DirectionalLight(0x9ab8ff, 2.4);
-    key.position.set(0.6, 1.4, 1.0);
-    this.scene.add(key);
-
-    // Fill light: from lower-left, warm tint. Fills in car underside.
-    const fill = new THREE.DirectionalLight(0x3366cc, 0.8);
-    fill.position.set(-1.0, -0.5, -0.8);
-    this.scene.add(fill);
-
-    // Rim light: from behind, to silhouette the car against the void
-    const rim = new THREE.DirectionalLight(0x4488ff, 1.2);
-    rim.position.set(0, 0.5, -2.0);
-    this.scene.add(rim);
+    // Single soft ambient — enough for emissive neon materials; no harsh specular in the void
+    this.scene.add(new THREE.AmbientLight(0x18202e, 3.0));
 
     this.track = new Track(this.scene, cfg.track);
     this.hud   = new HUD(this.track);
@@ -173,26 +155,18 @@ export class Game {
     if (isMobile) { this._useComposer = false; return; }
 
     const w = window.innerWidth, h = window.innerHeight;
-    const dpr = Math.min(devicePixelRatio, 2);
 
-    const rt = new THREE.WebGLRenderTarget(w * dpr, h * dpr, { type: THREE.HalfFloatType });
+    const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
-    // Bloom — targeted on edge rails (emissiveIntensity 4.5 >> threshold 0.55)
+    // Bloom — targeted bloom on edge rails and car emissive
     this.composer.addPass(new UnrealBloomPass(
       new THREE.Vector2(w, h),
-      1.10,   // strength — same power, cleaner
-      0.38,   // radius
-      0.55,   // threshold
+      1.15,   // strength
+      0.40,   // radius
+      0.52,   // threshold — emissiveIntensity 1.4 >> threshold, edge tubes 4.5 >> threshold
     ));
-
-    // FXAA — full-screen anti-alias pass (applied after bloom, very cheap)
-    this._fxaaPass = new ShaderPass(FXAAShader);
-    this._fxaaPass.material.uniforms['resolution'].value.set(
-      1 / (w * dpr), 1 / (h * dpr),
-    );
-    this.composer.addPass(this._fxaaPass);
   }
 
   private _setupInput(controller: 'keyboard' | 'mouse') {
@@ -266,14 +240,8 @@ export class Game {
 
   private _resize() {
     const w = window.innerWidth, h = window.innerHeight;
-    const dpr = Math.min(devicePixelRatio, 2);
     this.renderer.setSize(w, h);
-    if (this._useComposer) {
-      this.composer.setSize(w, h);
-      if (this._fxaaPass) {
-        this._fxaaPass.material.uniforms['resolution'].value.set(1 / (w * dpr), 1 / (h * dpr));
-      }
-    }
+    if (this._useComposer) this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -406,12 +374,12 @@ export class Game {
       this._camUp.copy(up);
     } else {
       // ── Critically-damped springs ─────────────────────────────────────────
-      // Position spring: ω=8  → responds in ~0.2 s, buttery smooth
-      springStep(this._camPos,    this._camVel,    desired,     8,  dt);
-      // Look-at spring: ω=18 → very snappy, anticipates the next curve
-      springStep(this._camLookAt, this._camLookVel, desiredLook, 18, dt);
-      // Banking spring: ω=11 → fast banking that feels physical, not laggy
-      springStep(this._camUp,     this._camUpVel,   up,          11, dt);
+      // Position spring: ω=7  → responds in ~0.25s, smooth follow
+      springStep(this._camPos,    this._camVel,    desired,     7,  dt);
+      // Look-at spring: ω=14 → anticipates curves, no jitter
+      springStep(this._camLookAt, this._camLookVel, desiredLook, 14, dt);
+      // Banking spring: ω=9  → visible dramatic roll, still stable
+      springStep(this._camUp,     this._camUpVel,   up,           9, dt);
       this._camUp.normalize();
     }
 
