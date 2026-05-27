@@ -6,6 +6,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { Track } from './Track';
 import { Car, CarInput, GridSlot } from './Car';
 import { HUD } from './HUD';
+import { BackgroundFX } from './BackgroundFX';
 import { resolveCollisions } from './Collision';
 import { Multiplayer } from './Multiplayer';
 import { Scores } from './Scores';
@@ -26,14 +27,15 @@ export class Game {
   private scene     = new THREE.Scene();
   private camera    = new THREE.PerspectiveCamera(72, 1, 0.3, 3000);
   private composer!: EffectComposer;
-  private _useComposer = true;  // false on mobile = direct renderer.render()
+  private _useComposer = true;
 
   private track!:   Track;
   private player!:  Car;
   private aiCars:   Car[] = [];
-  private allCars:  Car[] = [];
+  allCars:          Car[] = [];
   private hud!:     HUD;
   private mp!:      Multiplayer;
+  private _bgfx!:   BackgroundFX;
 
   private keys: Record<string, boolean> = {};
   private _mouseX    = 0.5;
@@ -50,20 +52,14 @@ export class Game {
 
   private _camPos    = new THREE.Vector3();
   private _camLookAt = new THREE.Vector3();
-  private _camUp     = new THREE.Vector3(0, 1, 0); // smoothed camera up for banking
+  private _camUp     = new THREE.Vector3(0, 1, 0);
   private _currentFOV = 72;
-
-  // Speed-line particles (void streaks)
-  private _speedLines!: THREE.LineSegments;
-  private _slBuf!:      Float32Array;
-  private _slAttr!:     THREE.BufferAttribute;
 
   private _onFinish: (time: number, bestLap: number, pos: number) => void;
   private _config:   GameConfig;
   private _listeners: (() => void)[] = [];
 
-  /** Camera shake — decays over time after collision */
-  private _shakeAmt  = 0;
+  private _shakeAmt = 0;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -78,38 +74,35 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: !isMobile,
+      alpha: true,              // transparent background so BackgroundFX shows through
       powerPreference: isMobile ? 'default' : 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
-    this.renderer.setClearColor(0x000005);
-    this.renderer.toneMapping        = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.75;
+    this.renderer.setClearColor(0x000000, 0);   // fully transparent clear
+    this.renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure  = 0.80;
+
+    this._bgfx = new BackgroundFX();
 
     this._setupScene(config);
     this._setupBloom();
     this._setupInput(config.controller);
-    this._buildSpeedLines();
     this._resize();
 
     const r = () => this._resize();
     window.addEventListener('resize', r);
     this._listeners.push(() => window.removeEventListener('resize', r));
+    this._listeners.push(() => this._bgfx.dispose());
   }
 
   private _setupScene(cfg: GameConfig) {
-    // Pure black void — no fog, no background geometry
-    this.scene.background = new THREE.Color(0x000000);
-
-    // Minimal ambient so car geometry is readable
+    this.scene.background = null;  // transparent — BackgroundFX 2D canvas shows through
     this.scene.add(new THREE.AmbientLight(0x111111, 1.0));
 
     this.track = new Track(this.scene, cfg.track);
     this.hud   = new HUD(this.track);
     this.mp    = new Multiplayer(this.scene);
 
-    // Staggered starting grid: pairs left/right each row
-    //   Player = pole position (front), AI fill rows behind
-    //   row 0 = T offset 0 (ahead), each row further back by 0.010 fraction
     const ROW_GAP   = 0.0105;
     const SIDES: (-1 | 0 | 1)[] = [-1, 1, -1, 1, -1, 1, -1];
     const aiColors  = AI_COLORS.filter(c => c !== cfg.car.color);
@@ -138,57 +131,20 @@ export class Game {
 
   private _setupBloom() {
     const isMobile = window.matchMedia('(pointer: coarse)').matches;
-
-    // iOS Safari and many mobile GPUs don't support EffectComposer render targets at all.
-    // On mobile we skip the composer entirely — direct renderer.render() always works.
-    if (isMobile) {
-      this._useComposer = false;
-      return;
-    }
+    if (isMobile) { this._useComposer = false; return; }
 
     const w = window.innerWidth, h = window.innerHeight;
     const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // Bloom: moderate strength, tight radius — clean glow not "blown out"
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(w, h),
-      1.35,
-      0.45,
-      0.60,
+      1.20,   // strength
+      0.40,   // radius
+      0.55,   // threshold — track edges and emissive cars bloom cleanly
     );
     this.composer.addPass(bloom);
-  }
-
-  private _buildSpeedLines() {
-    const N = 600;
-    this._slBuf  = new Float32Array(N * 2 * 3);
-    this._slAttr = new THREE.BufferAttribute(this._slBuf, 3).setUsage(THREE.DynamicDrawUsage);
-    for (let i = 0; i < N; i++) this._resetLine(i);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', this._slAttr);
-    this._speedLines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
-      color:       0xffffff,
-      transparent: true,
-      opacity:     0.0,
-      blending:    THREE.AdditiveBlending,
-      depthWrite:  false,
-    }));
-    this._speedLines.frustumCulled = false;
-    this.scene.add(this._speedLines);
-  }
-
-  private _resetLine(i: number) {
-    // Reset to a point in a cone around the camera forward axis
-    const r   = 0.8 + Math.random() * 5.5;
-    const ang  = Math.random() * Math.PI * 2;
-    const len  = 1.8 + Math.random() * 2.5; // streak length
-    this._slBuf[i * 6    ] = Math.cos(ang) * r;
-    this._slBuf[i * 6 + 1] = Math.sin(ang) * r;
-    this._slBuf[i * 6 + 2] = -(35 + Math.random() * 55); // ahead in camera space
-    // Tail point slightly further ahead (rendered as a streak pair)
-    this._slBuf[i * 6 + 3] = Math.cos(ang) * r * 0.96;
-    this._slBuf[i * 6 + 4] = Math.sin(ang) * r * 0.96;
-    this._slBuf[i * 6 + 5] = this._slBuf[i * 6 + 2] + len;
   }
 
   private _setupInput(controller: 'keyboard' | 'mouse') {
@@ -220,12 +176,10 @@ export class Game {
       );
     }
 
-    // Touch controls — always active so mobile users can steer
     this._setupTouchControls();
   }
 
   private _setupTouchControls() {
-    // Build on-screen touch buttons (left / right / accel / brake)
     const ui = document.getElementById('game-ui')!;
     const pad = document.createElement('div');
     pad.id = 'touch-pad';
@@ -255,18 +209,13 @@ export class Game {
     bind('touch-accel', 'w');
     bind('touch-brake', 's');
 
-    // Also remove the touch pad on destroy
     this._listeners.push(() => pad.remove());
   }
 
   private _render() {
-    if (this._useComposer) {
-      this.composer.render();
-    } else {
-      this.renderer.render(this.scene, this.camera);
-    }
+    if (this._useComposer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   }
-
 
   private _resize() {
     const w = window.innerWidth, h = window.innerHeight;
@@ -309,6 +258,7 @@ export class Game {
     this.lastRaf = raf;
 
     if (!this.started) {
+      this._bgfx.update(0, dt);
       this._updateCamera(0);
       this._render();
       return;
@@ -324,14 +274,12 @@ export class Game {
     }
     const prevLat  = this.player.lateral;
     resolveCollisions(this.allCars);
-    // Trigger camera shake when player is knocked sideways
     const latDelta = Math.abs(this.player.lateral - prevLat);
     if (latDelta > 0.15) this._shakeAmt = Math.min(this._shakeAmt + latDelta * 1.2, 0.9);
 
     this.mp.send(this.player.trackT, this.player.lateral, this.player.lap);
     this.mp.update(this.track);
 
-    // Lap timing
     if (this.player.lap !== this.prevLap) {
       const lapTime = this.elapsed - this.lapStart;
       if (this.bestLap === null || lapTime < this.bestLap) this.bestLap = lapTime;
@@ -339,14 +287,14 @@ export class Game {
       this.prevLap  = this.player.lap;
     }
 
-    // Finish
     if (this.player.finished && !this.done) {
       this.done = true;
       const sorted = [...this.allCars].sort((a, b) => b.totalProgress - a.totalProgress);
       this._onFinish(this.elapsed, this.bestLap ?? this.elapsed, sorted.indexOf(this.player) + 1);
     }
 
-    this._updateSpeedLines(dt);
+    const spd = this.player.speed / SPEED_PLAYER_MAX;
+    this._bgfx.update(spd, dt);
     this._updateCamera(dt);
     this.hud.update(this.player, this.allCars, this.elapsed, this.bestLap, this.track);
     this._render();
@@ -387,7 +335,6 @@ export class Game {
     const desired     = pos.clone().addScaledVector(tangent, -camDist).addScaledVector(up, camH);
     const desiredLook = pos.clone().addScaledVector(tangent, 9).addScaledVector(up, -0.4);
 
-    // Dynamic FOV
     const targetFOV  = 72 + spd * 32;
     this._currentFOV += (targetFOV - this._currentFOV) * Math.min(dt * 5, 1);
     this.camera.fov   = this._currentFOV;
@@ -400,46 +347,22 @@ export class Game {
     } else {
       const a  = 1 - Math.pow(0.001, dt / 0.10);
       const al = 1 - Math.pow(0.001, dt / 0.06);
-      const au = 1 - Math.pow(0.001, dt / 0.18); // slower banking roll
+      const au = 1 - Math.pow(0.001, dt / 0.18);
       this._camPos.lerp(desired, a);
       this._camLookAt.lerp(desiredLook, al);
       this._camUp.lerp(up, au).normalize();
     }
 
     this.camera.position.copy(this._camPos);
-    this.camera.up.copy(this._camUp);   // must be set BEFORE lookAt
+    this.camera.up.copy(this._camUp);
     this.camera.lookAt(this._camLookAt);
 
-    // Camera shake from collisions
     if (this._shakeAmt > 0.01) {
       this._shakeAmt *= (1 - dt * 9);
       const s = this._shakeAmt;
       this.camera.position.x += (Math.random() - 0.5) * s * 0.6;
       this.camera.position.y += (Math.random() - 0.5) * s * 0.3;
     }
-  }
-
-  private _updateSpeedLines(dt: number) {
-    const spd = this.player.speed / SPEED_PLAYER_MAX;
-    const mat = this._speedLines.material as THREE.LineBasicMaterial;
-
-    // Ramp up quickly above 35% speed
-    mat.opacity = Math.max(0, Math.min(1, (spd - 0.35) * 2.2));
-
-    if (spd < 0.2) return;
-
-    // Move lines toward camera (in camera-local Z)
-    const streak = 90 * spd * dt;
-    this._speedLines.position.copy(this.camera.position);
-    this._speedLines.quaternion.copy(this.camera.quaternion);
-
-    for (let i = 0; i < 300; i++) {
-      this._slBuf[i * 6 + 2] += streak;
-      this._slBuf[i * 6 + 5] += streak;
-      // Reset when they pass behind camera
-      if (this._slBuf[i * 6 + 2] > 3) this._resetLine(i);
-    }
-    this._slAttr.needsUpdate = true;
   }
 
   destroy() {
