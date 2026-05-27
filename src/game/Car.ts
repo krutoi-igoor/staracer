@@ -20,47 +20,44 @@ function buildBody(spec: CarSpec, color: number): THREE.Group {
   const mat = new THREE.MeshStandardMaterial({
     color,
     emissive:          color,
-    emissiveIntensity: 1.4,
-    roughness:         0.3,
-    metalness:         0.5,
+    emissiveIntensity: 1.6,
+    roughness:         0.25,
+    metalness:         0.4,
   });
 
   const W  = spec.width;
   const L  = spec.length;
-  const bw = W * 0.52;   // body (shaft) half-width — narrower than shoulders
-  const H  = 0.22;       // car height (extrusion)
+  const bw = W * 0.50;   // body shaft half-width
+  const H  = 0.18;       // car height
 
-  // Arrow shape in XY plane, tip pointing in +Y (becomes +Z after rotation)
+  // Arrow shape — stubby (1:1.2 ratio): wide triangular wedge with a short tail
   const shape = new THREE.Shape();
-  shape.moveTo(0,       L * 0.50);   // front tip
-  shape.lineTo( W*0.5,  L * 0.06);   // right shoulder outer
-  shape.lineTo( bw*0.5, L * 0.03);   // right shoulder inner
-  shape.lineTo( bw*0.5, -L * 0.50);  // right rear
-  shape.lineTo(-bw*0.5, -L * 0.50);  // left rear
-  shape.lineTo(-bw*0.5, L * 0.03);   // left shoulder inner
-  shape.lineTo(-W*0.5,  L * 0.06);   // left shoulder outer
+  shape.moveTo(0,        L * 0.50);   // front tip
+  shape.lineTo( W * 0.5, L * 0.05);   // right shoulder outer
+  shape.lineTo( bw * 0.5, -L * 0.48); // right rear
+  shape.lineTo(-bw * 0.5, -L * 0.48); // left rear
+  shape.lineTo(-W * 0.5, L * 0.05);   // left shoulder outer
   shape.closePath();
 
   const geo = new THREE.ExtrudeGeometry(shape, { depth: H, bevelEnabled: false });
-  geo.rotateX(Math.PI / 2);    // XY plane → XZ plane; +Y → +Z (forward); extrusion → -Y
-  geo.translate(0, H / 2, 0);  // center vertically
-
+  geo.rotateX(Math.PI / 2);
+  geo.translate(0, H / 2, 0);
   g.add(new THREE.Mesh(geo, mat));
 
-  // Colored underglow on track surface matching car color
+  // Color-matched underglow (subtle)
   const puddle = new THREE.Mesh(
-    new THREE.PlaneGeometry(spec.width * 1.8, spec.length * 1.5),
+    new THREE.PlaneGeometry(spec.width * 1.6, spec.length * 1.4),
     new THREE.MeshBasicMaterial({
       color,
       blending:    THREE.AdditiveBlending,
       transparent: true,
-      opacity:     0.15,
+      opacity:     0.12,
       depthWrite:  false,
       side:        THREE.DoubleSide,
     }),
   );
   puddle.rotation.x = -Math.PI / 2;
-  puddle.position.y = -0.3;
+  puddle.position.y = -0.28;
   g.add(puddle);
 
   return g;
@@ -75,7 +72,6 @@ export interface CarInput {
   mouseLatTarget: number | null;
 }
 
-/** Grid slot: which starting row/side */
 export interface GridSlot { row: number; side: -1 | 0 | 1 }
 
 export class Car {
@@ -88,7 +84,6 @@ export class Car {
 
   trackT       = 0;
   lateral      = 0;
-  /** Lateral velocity in track-space units per second */
   lateralVel   = 0;
   speed        = 0;
   lap          = 1;
@@ -97,11 +92,10 @@ export class Car {
 
   currentTangent = new THREE.Vector3(0, 0, 1);
   currentUp      = new THREE.Vector3(0, 1, 0);
+  currentRight   = new THREE.Vector3(1, 0, 0);
 
-  // Collision shake
   lastImpact   = 0;
 
-  // Fall / respawn
   falling       = false;
   fallVel       = 0;
   fallDepth     = 0;
@@ -110,7 +104,6 @@ export class Car {
   respawning    = false;
   respawnTimer  = 0;
 
-  /** AI: preferred side of track (-1 left, 0 center, +1 right) */
   private _latBias: number;
   private _aiBase:  number;
   private _diff:    DifficultyConfig | null;
@@ -128,16 +121,12 @@ export class Car {
     this.spec     = spec;
     this._diff    = diff;
     this._aiBase  = diff ? diff.aiSpeedBase + (Math.random() * 2 - 1) * diff.aiSpeedVar : 0;
-
-    // Give each AI a distinct lateral personality (spreads them across the track)
     this._latBias = slot.side * MAX_LAT * (0.28 + Math.random() * 0.18);
-
-    // Stagger starting lateral position
-    this.lateral = isPlayer ? 0 : slot.side * MAX_LAT * 0.35;
+    this.lateral  = isPlayer ? 0 : slot.side * MAX_LAT * 0.35;
 
     this.mesh  = buildBody(spec, color);
-    // Trail width matches car body width for a thick visible streak
-    this._trail = new Trail(scene, color, spec.width * 1.1, isPlayer ? 0.95 : 0.75);
+    // Trail width = car width (matches reference exactly)
+    this._trail = new Trail(scene, color, spec.width, isPlayer ? 0.95 : 0.70);
     scene.add(this.mesh);
   }
 
@@ -147,7 +136,6 @@ export class Car {
   update(dt: number, input: CarInput | null, track: Track, allCars: Car[], playerCar?: Car) {
     if (this.finished) return;
 
-    // ── Respawn blink ─────────────────────────────────────────────────────
     if (this.respawning) {
       this.respawnTimer -= dt;
       this.mesh.visible  = Math.floor(this.respawnTimer * 10) % 2 === 0;
@@ -156,7 +144,6 @@ export class Car {
       return;
     }
 
-    // ── Falling ───────────────────────────────────────────────────────────
     if (this.falling) {
       this.fallVel    += 28 * dt;
       this.fallDepth  += this.fallVel * dt;
@@ -173,7 +160,7 @@ export class Car {
       return;
     }
 
-    // ── Draft ─────────────────────────────────────────────────────────────
+    // Draft slipstream
     let drafting = false;
     for (const o of allCars) {
       if (o === this || !o.alive) continue;
@@ -184,58 +171,45 @@ export class Car {
     this.draftLevel = drafting
       ? Math.min(1, this.draftLevel + dt * 4)
       : Math.max(0, this.draftLevel - dt * 3);
-
     const draftBoost = this.draftLevel * DRAFT_BOOST;
 
-    // ── Centrifugal drift (corner push-out) ───────────────────────────────
+    // Centrifugal drift
     const curvDrift = this._computeCurvDrift(track) * (this.speed / SPEED_PLAYER_MAX);
 
-    // ── Player controls ───────────────────────────────────────────────────
     if (this.isPlayer && input) {
       const spdMax = SPEED_PLAYER_MAX * this.spec.topSpeedMult + draftBoost;
 
-      // Longitudinal
       if (input.accel)     this.speed = Math.min(this.speed + SPEED_ACCEL * this.spec.accelMult * dt, spdMax);
       if (input.brake)     this.speed = Math.max(this.speed - SPEED_BRAKE * dt, 0);
       if (input.handbrake) this.speed *= (1 - 5 * dt);
       if (!input.accel && !input.brake && !input.handbrake)
         this.speed = Math.max(this.speed - SPEED_FRICTION * dt, 0);
 
-      // Lateral — momentum model (not instant snap)
       if (input.mouseLatTarget !== null) {
-        // Mouse: spring toward target position
         const err = input.mouseLatTarget - this.lateral;
         this.lateralVel += err * 9.0 * dt - this.lateralVel * (LAT_DAMP - 0.5) * dt;
       } else {
-        // Keyboard: velocity-based steering
         const steerDir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
         this.lateralVel += steerDir * LAT_ACCEL * this.spec.handleMult * dt;
         this.lateralVel -= this.lateralVel * LAT_DAMP * dt;
       }
 
-      // Apply centrifugal drift + lateral velocity
       this.lateralVel += curvDrift * dt;
       this.lateral    += this.lateralVel * dt;
-
-      // No artificial clamp — the fall zone IS the edge of the track
-      // (FALL_TRIGGER check below is the only boundary)
 
     } else if (!this.isPlayer) {
       this._aiStep(dt, track, allCars, draftBoost, playerCar);
     }
 
-    // ── Fall check — BEFORE any clamp ─────────────────────────────────────
     if (this.isPlayer && Math.abs(this.lateral) > FALL_TRIGGER) {
       this.falling = true;
       this.fallAxis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
       return;
     }
-    // Clamp AI safely within track
     if (!this.isPlayer) {
       this.lateral = Math.max(-MAX_LAT * 0.88, Math.min(MAX_LAT * 0.88, this.lateral));
     }
 
-    // ── Advance T ─────────────────────────────────────────────────────────
     const prev   = this.trackT;
     this.trackT += this.speed * dt;
     if (this.trackT >= 1) {
@@ -249,7 +223,6 @@ export class Car {
     this._placeMesh(track);
   }
 
-  /** Compute centrifugal drift force: positive = drifts right (track turns left) */
   private _computeCurvDrift(track: Track): number {
     const steps = track.steps;
     const i0    = Math.floor(((this.trackT + 1) % 1) * steps) % steps;
@@ -265,12 +238,15 @@ export class Car {
     const { pos, tangent, right, up } = track.getTransform(this.trackT, this.lateral);
     this.currentTangent.copy(tangent);
     this.currentUp.copy(up);
+    this.currentRight.copy(right);
     this.mesh.position.copy(pos);
     this.mesh.up.copy(up);
     this.mesh.lookAt(pos.clone().add(tangent));
+    // Trail at rear-center, using car's right vector and actual width
     this._trail.update(
       pos.clone().addScaledVector(tangent, -this.spec.length * 0.5),
       right,
+      this.spec.width,
     );
   }
 
@@ -278,7 +254,6 @@ export class Car {
     const cfg    = this._diff!;
     const spdMax = this._aiBase * this.spec.topSpeedMult + draftBoost;
 
-    // Mild rubber-band: catch up if player is far ahead
     let rbBonus = 0;
     if (player) {
       const gap = player.totalProgress - this.totalProgress;
@@ -288,12 +263,10 @@ export class Car {
     this.speed += ((spdMax + rbBonus) - this.speed) * Math.min(dt * 2, 1);
     this.speed  = Math.max(0, Math.min(spdMax + rbBonus, this.speed));
 
-    // Target = racing line + this AI's personality bias
     let target = track.getRacingLineOffset(
       ((this.trackT + cfg.aiLookAhead / track.steps) + 1) % 1,
     ) + this._latBias;
 
-    // Avoidance: push away from nearby cars
     let avoid = 0;
     for (const o of allCars) {
       if (o === this) continue;
@@ -304,7 +277,6 @@ export class Car {
       }
     }
 
-    // Blocking (hard/insane only): shade toward player's lateral when they're behind
     if (cfg.aiBlock && player && player.alive) {
       const behindDist = trackDelta(this.trackT, player.trackT);
       if (behindDist > 0 && behindDist < 0.025) target = target * 0.3 + player.lateral * 0.7;
@@ -315,7 +287,7 @@ export class Car {
 
   applyLateralImpulse(amount: number) {
     this.lateral    += amount;
-    this.lateralVel += amount * 2.5;  // cascades into momentum
+    this.lateralVel += amount * 2.5;
     this.speed       = Math.max(this.speed * 0.88, 0);
     this.lastImpact  = Date.now();
   }
@@ -330,5 +302,4 @@ export class Car {
   }
 }
 
-// Scratch vector to avoid allocation in hot path
 const _v3 = new THREE.Vector3();
