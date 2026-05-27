@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { EffectComposer }  from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass }      from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { ShaderPass }      from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { FXAAShader }      from 'three/examples/jsm/shaders/FXAAShader.js';
 
 import { Track } from './Track';
-import { Car, CarInput, GridSlot } from './Car';
+import { Car, CarInput } from './Car';
 import { HUD } from './HUD';
 import { BackgroundElements } from './BackgroundElements';
 import { resolveCollisions } from './Collision';
@@ -21,11 +23,28 @@ export interface GameConfig {
   controller:  'keyboard' | 'mouse';
 }
 
+// ── Critically-damped spring helper ──────────────────────────────────────────
+// omega = natural frequency (rad/s). Higher = faster response. ζ = 1 (no overshoot).
+function springStep(
+  pos: THREE.Vector3, vel: THREE.Vector3,
+  target: THREE.Vector3,
+  omega: number, dt: number,
+): void {
+  // Δx
+  const dx = target.clone().sub(pos);
+  // Acceleration: spring − damper (critically damped → ζ = 1, c = 2*omega)
+  const accel = dx.multiplyScalar(omega * omega)
+               .sub(vel.clone().multiplyScalar(2 * omega));
+  vel.addScaledVector(accel, dt);
+  pos.addScaledVector(vel,   dt);
+}
+
 export class Game {
   private renderer:  THREE.WebGLRenderer;
   private scene      = new THREE.Scene();
   private camera     = new THREE.PerspectiveCamera(72, 1, 0.3, 3000);
   private composer!: EffectComposer;
+  private _fxaaPass!: ShaderPass;
   private _useComposer = true;
 
   private track!:   Track;
@@ -49,10 +68,14 @@ export class Game {
   private started  = false;
   private done     = false;
 
-  // Smoothed camera state
+  // ── Spring-damper camera state ─────────────────────────────────────────────
+  // Position + velocity pairs for critically-damped springs
   private _camPos    = new THREE.Vector3();
+  private _camVel    = new THREE.Vector3();
   private _camLookAt = new THREE.Vector3();
+  private _camLookVel = new THREE.Vector3();
   private _camUp     = new THREE.Vector3(0, 1, 0);
+  private _camUpVel  = new THREE.Vector3();
   private _currentFOV = 72;
 
   private _onFinish: (time: number, bestLap: number, pos: number) => void;
@@ -72,14 +95,14 @@ export class Game {
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias:       !isMobile,
+      antialias:       false,  // FXAA handles AA in post-process (sharper than native)
       powerPreference: isMobile ? 'default' : 'high-performance',
-      // No alpha — single opaque canvas, background elements are Three.js geometry
     });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
     this.renderer.setClearColor(0x000000, 1);
     this.renderer.toneMapping         = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure  = 0.85;
+    this.renderer.toneMappingExposure  = 0.80;
+    this.renderer.shadowMap.enabled    = false;
 
     this._setupScene(config);
     this._setupBloom();
@@ -93,14 +116,29 @@ export class Game {
 
   private _setupScene(cfg: GameConfig) {
     this.scene.background = new THREE.Color(0x000000);
-    this.scene.add(new THREE.AmbientLight(0x222222, 1.0));
+
+    // Ambient — keeps void from being 100% black on dark surfaces
+    this.scene.add(new THREE.AmbientLight(0x20243a, 2.5));
+
+    // Key light: slightly from upper-right, blue-white. Gives cars sharp highlights.
+    const key = new THREE.DirectionalLight(0x9ab8ff, 2.4);
+    key.position.set(0.6, 1.4, 1.0);
+    this.scene.add(key);
+
+    // Fill light: from lower-left, warm tint. Fills in car underside.
+    const fill = new THREE.DirectionalLight(0x3366cc, 0.8);
+    fill.position.set(-1.0, -0.5, -0.8);
+    this.scene.add(fill);
+
+    // Rim light: from behind, to silhouette the car against the void
+    const rim = new THREE.DirectionalLight(0x4488ff, 1.2);
+    rim.position.set(0, 0.5, -2.0);
+    this.scene.add(rim);
 
     this.track = new Track(this.scene, cfg.track);
     this.hud   = new HUD(this.track);
     this.mp    = new Multiplayer(this.scene);
-
-    // Background elements: rings + speed lines (attached to camera)
-    this._bg = new BackgroundElements(this.camera, this.scene);
+    this._bg   = new BackgroundElements(this.camera, this.scene);
 
     const ROW_GAP   = 0.0105;
     const SIDES: (-1 | 0 | 1)[] = [-1, 1, -1, 1, -1, 1, -1];
@@ -123,9 +161,11 @@ export class Game {
     }
     this.allCars = [this.player, ...this.aiCars];
 
+    // Warm the camera spring to avoid a pop at frame 0
     const f0 = this.track.getTransform(this.player.trackT, 0);
-    this._camPos.copy(f0.pos).addScaledVector(f0.tangent, -14).addScaledVector(f0.up, 3.5);
-    this._camLookAt.copy(f0.pos).addScaledVector(f0.tangent, 8);
+    this._camPos.copy(f0.pos).addScaledVector(f0.tangent, -12).addScaledVector(f0.up, 3.0);
+    this._camLookAt.copy(f0.pos).addScaledVector(f0.tangent, 10);
+    this._camUp.copy(f0.up);
   }
 
   private _setupBloom() {
@@ -133,15 +173,26 @@ export class Game {
     if (isMobile) { this._useComposer = false; return; }
 
     const w = window.innerWidth, h = window.innerHeight;
-    const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
+    const dpr = Math.min(devicePixelRatio, 2);
+
+    const rt = new THREE.WebGLRenderTarget(w * dpr, h * dpr, { type: THREE.HalfFloatType });
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+
+    // Bloom — targeted on edge rails (emissiveIntensity 4.5 >> threshold 0.55)
     this.composer.addPass(new UnrealBloomPass(
       new THREE.Vector2(w, h),
-      1.30,   // strength
-      0.42,   // radius
-      0.50,   // threshold — edge tubes (emissiveIntensity 4.5) and emissive cars bloom
+      1.10,   // strength — same power, cleaner
+      0.38,   // radius
+      0.55,   // threshold
     ));
+
+    // FXAA — full-screen anti-alias pass (applied after bloom, very cheap)
+    this._fxaaPass = new ShaderPass(FXAAShader);
+    this._fxaaPass.material.uniforms['resolution'].value.set(
+      1 / (w * dpr), 1 / (h * dpr),
+    );
+    this.composer.addPass(this._fxaaPass);
   }
 
   private _setupInput(controller: 'keyboard' | 'mouse') {
@@ -215,8 +266,14 @@ export class Game {
 
   private _resize() {
     const w = window.innerWidth, h = window.innerHeight;
+    const dpr = Math.min(devicePixelRatio, 2);
     this.renderer.setSize(w, h);
-    if (this._useComposer) this.composer.setSize(w, h);
+    if (this._useComposer) {
+      this.composer.setSize(w, h);
+      if (this._fxaaPass) {
+        this._fxaaPass.material.uniforms['resolution'].value.set(1 / (w * dpr), 1 / (h * dpr));
+      }
+    }
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -250,7 +307,8 @@ export class Game {
     if (this.done) return;
     requestAnimationFrame(t => this._loop(t));
 
-    const dt = Math.min((raf - this.lastRaf) / 1000, 1 / 30);
+    // Cap at 1/60 — tighter physics timestep, prevents large-frame pops
+    const dt = Math.min((raf - this.lastRaf) / 1000, 1 / 60);
     this.lastRaf = raf;
 
     const spd = this.player.speed / SPEED_PLAYER_MAX;
@@ -323,45 +381,50 @@ export class Game {
   private _updateCamera(dt: number) {
     const spd = this.player.speed / SPEED_PLAYER_MAX;
 
-    const { pos, tangent, up } = this.track.getTransform(this.player.trackT, this.player.lateral * 0.40);
+    // Sample track slightly to the player's lateral side for natural framing
+    const { pos, tangent, up } = this.track.getTransform(
+      this.player.trackT, this.player.lateral * 0.35,
+    );
 
-    const camH    = 2.5 + spd * 1.0;
-    const camDist = 12 - spd * 2.5;
+    const camH    = 2.2 + spd * 1.2;
+    const camDist = 11  - spd * 2.0;
 
     const desired     = pos.clone().addScaledVector(tangent, -camDist).addScaledVector(up, camH);
-    const desiredLook = pos.clone().addScaledVector(tangent, 10).addScaledVector(up, -0.3);
+    // Look 12 units ahead, slightly high so you see track coming
+    const desiredLook = pos.clone().addScaledVector(tangent, 12).addScaledVector(up, 0.4);
 
-    // Dynamic FOV
-    const targetFOV  = 72 + spd * 28;
-    this._currentFOV += (targetFOV - this._currentFOV) * Math.min(dt * 5, 1);
+    // Dynamic FOV: widens at speed for cinematic rush
+    const targetFOV  = 70 + spd * 30;
+    this._currentFOV += (targetFOV - this._currentFOV) * Math.min(dt * 4, 1);
     this.camera.fov   = this._currentFOV;
     this.camera.updateProjectionMatrix();
 
     if (dt <= 0) {
+      // Initialisation — snap without velocity
       this._camPos.copy(desired);
       this._camLookAt.copy(desiredLook);
       this._camUp.copy(up);
     } else {
-      // Camera position — responsive (0.08s)
-      const a  = 1 - Math.pow(0.001, dt / 0.08);
-      // Look-at — very snappy (0.05s)
-      const al = 1 - Math.pow(0.001, dt / 0.05);
-      // Banking (up vector) — fast but smooth (0.07s) — more roll than before
-      const au = 1 - Math.pow(0.001, dt / 0.07);
-      this._camPos.lerp(desired, a);
-      this._camLookAt.lerp(desiredLook, al);
-      this._camUp.lerp(up, au).normalize();
+      // ── Critically-damped springs ─────────────────────────────────────────
+      // Position spring: ω=8  → responds in ~0.2 s, buttery smooth
+      springStep(this._camPos,    this._camVel,    desired,     8,  dt);
+      // Look-at spring: ω=18 → very snappy, anticipates the next curve
+      springStep(this._camLookAt, this._camLookVel, desiredLook, 18, dt);
+      // Banking spring: ω=11 → fast banking that feels physical, not laggy
+      springStep(this._camUp,     this._camUpVel,   up,          11, dt);
+      this._camUp.normalize();
     }
 
     this.camera.position.copy(this._camPos);
-    this.camera.up.copy(this._camUp);   // MUST be before lookAt
+    this.camera.up.copy(this._camUp);   // MUST be set before lookAt
     this.camera.lookAt(this._camLookAt);
 
+    // Camera shake on collision
     if (this._shakeAmt > 0.01) {
-      this._shakeAmt *= (1 - dt * 9);
+      this._shakeAmt *= (1 - dt * 10);
       const s = this._shakeAmt;
-      this.camera.position.x += (Math.random() - 0.5) * s * 0.5;
-      this.camera.position.y += (Math.random() - 0.5) * s * 0.25;
+      this.camera.position.x += (Math.random() - 0.5) * s * 0.4;
+      this.camera.position.y += (Math.random() - 0.5) * s * 0.2;
     }
   }
 
